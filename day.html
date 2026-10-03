@@ -1,0 +1,1258 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>タイムスケジューラ</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* layout: 営業日スケジューラと同じ1カラム — プラン・メンバー → 日付タブ → 予定表（黄色＝入力） → ガントチャート（ドラッグで編集） → 共有用テキスト（ここも編集できる） */
+:root{
+  --bg:#f7f6f1; --surface:#fffefa; --fg:#23221d; --muted:#6b6858; --line:#dedbcc; --line-soft:#eceadf;
+  --cell:#fff2cc; --cell-line:#e3cc74; --head:#efefe6;
+  --bar:#2c6e8a; --bar-pin:#12384b; --shade:#ebe9de; --today:#b4532a; --warn:#9a3412;
+  --btn:#ffe08a; --on-btn:#3a2f00; --on-bar:#ffffff;
+  --c0:#c2410c; --c1:#3f7d3a; --c2:#7c4dab; --c3:#a16207; --c4:#be3a6e; --c5:#52606d;
+  --label:150px; --rowh:30px;
+  --font-body:"Zen Kaku Gothic New","Hiragino Sans","Yu Gothic",system-ui,sans-serif;
+  --font-num:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#1b1a16; --surface:#24231d; --fg:#ecead9; --muted:#a39f88; --line:#3a382d; --line-soft:#2e2d25;
+  --cell:#3a3110; --cell-line:#6b5a1a; --head:#2b2a23;
+  --bar:#6bb3d1; --bar-pin:#e3f3fa; --shade:#2c2b24; --today:#e58a5f; --warn:#fdba74;
+  --btn:#e0b93a; --on-btn:#1d1700; --on-bar:#14130f;
+  --c0:#fb923c; --c1:#86c56f; --c2:#b794e0; --c3:#e0b04a; --c4:#f08bb4; --c5:#a9b5c1; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#1b1a16; --surface:#24231d; --fg:#ecead9; --muted:#a39f88; --line:#3a382d; --line-soft:#2e2d25;
+  --cell:#3a3110; --cell-line:#6b5a1a; --head:#2b2a23;
+  --bar:#6bb3d1; --bar-pin:#e3f3fa; --shade:#2c2b24; --today:#e58a5f; --warn:#fdba74;
+  --btn:#e0b93a; --on-btn:#1d1700; --on-bar:#14130f;
+  --c0:#fb923c; --c1:#86c56f; --c2:#b794e0; --c3:#e0b04a; --c4:#f08bb4; --c5:#a9b5c1; color-scheme:dark }
+
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-body);font-size:14px;line-height:1.7;
+  padding-inline:16px;padding-block:calc(20px + env(safe-area-inset-top,0px)) calc(56px + env(safe-area-inset-bottom,0px))}
+.wrap{max-width:980px;margin-inline:auto;display:flex;flex-direction:column;gap:28px}
+h1{font-size:22px;line-height:1.3;margin:0;font-weight:700}
+h2{font-size:15px;margin:0;font-weight:700}
+p{margin:0}
+.lede,.hint{color:var(--muted);font-size:13px;max-width:65ch}
+section{display:flex;flex-direction:column;gap:10px;min-width:0}
+.num{font-family:var(--font-num);font-variant-numeric:tabular-nums}
+header{display:flex;flex-direction:column;gap:6px}
+.tools{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12.5px}
+.tools a{color:var(--bar)}
+.tools [aria-current]{color:var(--muted)}
+
+input,select,textarea,button{font:inherit;color:inherit}
+input[type="text"],input[type="date"],input[type="time"],select,textarea{
+  background:var(--cell);border:1px solid var(--cell-line);border-radius:3px;padding:4px 6px;min-width:0}
+input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible{outline:2px solid var(--bar);outline-offset:1px}
+select:disabled{opacity:.35}
+.btn{background:var(--btn);color:var(--on-btn);border:1px solid var(--on-btn);border-radius:4px;padding:6px 14px;font-weight:700;font-size:13px;cursor:pointer}
+.btn.plain{background:transparent;color:var(--fg);border-color:var(--line);font-weight:500}
+.btn:hover{filter:brightness(1.05)}
+.btn:disabled{opacity:.4;cursor:default}
+.row-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.spacer{flex:1 1 0}
+.status{font-size:12.5px;color:var(--muted)}
+
+/* プラン・日付 */
+.bar-row{display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;gap:10px 18px;padding-block:12px;border-block:1px solid var(--line)}
+.fld{display:flex;align-items:center;gap:8px;font-weight:700;min-width:0}
+.fld.grow{flex:1 1 220px}
+.fld.grow input{flex:1 1 auto}
+#planSel{max-width:220px}
+.tabs{display:flex;flex-wrap:wrap;gap:6px}
+.tab{display:inline-flex;align-items:baseline;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:5px 12px;cursor:pointer;font-weight:700;font-size:13px}
+.tab small{font-weight:500;font-size:12px;color:var(--muted)}
+.tab[aria-selected="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.tab[aria-selected="true"] small{color:inherit;opacity:.8}
+.tab .dot{color:var(--warn);font-family:var(--font-num)}
+.tab[aria-selected="true"] .dot{color:inherit}
+.tab.add{font-weight:500;border-style:dashed}
+.summary{font-size:13px}
+.summary b{font-family:var(--font-num);font-weight:500}
+.banner{padding:8px 12px;border:1px solid var(--bar);background:var(--surface);font-size:13px}
+
+/* メンバー */
+.members{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.members .lbl{font-weight:700;margin-right:6px}
+.chip{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:3px 4px 3px 6px}
+.chip input{width:7.5em;border-radius:999px;padding:2px 8px}
+.sw{width:18px;height:18px;border-radius:50%;border:2px solid var(--surface);box-shadow:0 0 0 1px var(--line);cursor:pointer;padding:0;flex:0 0 auto}
+.chip .sw.all{cursor:default}
+.chip.all{padding-right:10px;font-size:13px}
+.c0{--c:var(--c0)} .c1{--c:var(--c1)} .c2{--c:var(--c2)} .c3{--c:var(--c3)} .c4{--c:var(--c4)} .c5{--c:var(--c5)} .call{--c:var(--bar)}
+.sw,.dot-c{background:var(--c)}
+.dot-c{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:baseline}
+
+/* 予定表 */
+.tbl-scroll{overflow-x:auto;border:1px solid var(--line);background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:760px}
+th,td{padding:5px 8px;text-align:left;border-bottom:1px solid var(--line);vertical-align:middle;white-space:nowrap}
+thead th{background:var(--head);font-size:12px;font-weight:700}
+tbody tr:last-child td{border-bottom:0}
+td.name{width:38%}
+td.name input{width:100%;min-width:170px;display:block}
+td.dur input{width:64px;text-align:center}
+td.date{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:13px}
+td.start{width:150px}
+.st{display:flex;align-items:center;gap:2px}
+.st .nx{font-size:12px;color:var(--muted)}
+.st input{width:104px;font-family:var(--font-num);font-size:13px}
+/* 時刻を指定していない行は、計算した時刻をそのまま見せる（書き換えるとその時刻に固定） */
+.st input.auto{background:transparent;border-color:transparent}
+.st input.auto:hover,.st input.auto:focus{border-color:var(--line)}
+td.start .note{display:block;font-size:11px;color:var(--muted);line-height:1.3;padding-left:7px}
+td.start .note.warn{color:var(--warn);font-weight:700}
+tr.is-head td.name input:first-child{font-weight:700}
+tr.is-head td.date{color:var(--muted)}
+td.ops{text-align:right}
+td.who select{font-size:13px;max-width:8.5em}
+#rows tr.has-who td.grip{box-shadow:inset 4px 0 0 var(--c)}
+.icon{background:none;border:1px solid transparent;border-radius:3px;padding:2px 7px;cursor:pointer;color:var(--muted);font-size:13px}
+.icon:hover{border-color:var(--line);color:var(--fg)}
+.icon:disabled{opacity:.25;cursor:default}
+.mvday{font-size:12px;padding:2px 4px;background:transparent;border-color:var(--line);color:var(--muted);margin-left:4px}
+.notices{display:flex;flex-direction:column;gap:6px;font-size:13px}
+.notice{padding:7px 12px;background:var(--surface);border:1px solid var(--line);max-width:80ch}
+.notice.warn{border-color:var(--warn)}
+.notice.warn b{color:var(--warn);margin-right:6px}
+.notice.info{color:var(--muted)}
+
+/* ガントチャート */
+.legend{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.k-pin{width:22px;height:10px;border-radius:3px;background:var(--bar);border-left:4px solid var(--fg)}
+.k-now{width:0;height:14px;border-left:2px dashed var(--today)}
+.k-mid{width:14px;height:14px;background:var(--shade);border:1px solid var(--line)}
+.g-scroll{overflow-x:auto;border:1px solid var(--line);background:var(--surface)}
+.gantt{position:relative;font-size:12px;user-select:none;-webkit-user-select:none}
+.g-row{display:flex}
+.g-label{position:sticky;left:0;z-index:3;flex:0 0 var(--label);width:var(--label);background:var(--surface);border-right:1px solid var(--line);
+  padding-inline:8px;height:var(--rowh);line-height:var(--rowh);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.g-head .g-label{background:var(--head);font-family:var(--font-num);font-size:11.5px;color:var(--muted)}
+.g-track{position:relative;flex:0 0 auto;height:var(--rowh)}
+.g-head .g-track{background:var(--head);display:flex}
+.g-hour{flex:0 0 auto;padding-left:4px;border-left:1px solid var(--line);font-family:var(--font-num);font-size:11px;line-height:var(--rowh);white-space:nowrap;overflow:hidden}
+.g-hour.next{background:var(--shade)}
+.g-body{position:relative;border-top:1px solid var(--line)}
+.g-body .g-row + .g-row .g-label,.g-body .g-row + .g-row .g-track{border-top:1px solid var(--line)}
+.g-row.is-head .g-label{font-weight:700}
+.g-grid{position:absolute;top:0;bottom:0;width:0;border-left:1px solid var(--line-soft);z-index:0}
+.g-grid.hour{border-left-color:var(--line)}
+.g-next{position:absolute;top:0;bottom:0;right:0;background:var(--shade);z-index:0}
+.g-now{position:absolute;top:0;bottom:0;width:0;border-left:2px dashed var(--today);z-index:2}
+.bar{position:absolute;top:7px;height:16px;border-radius:4px;background:var(--c,var(--bar));z-index:1;cursor:grab;touch-action:none}
+.bar .h{position:absolute;top:-5px;bottom:-5px;width:8px;cursor:ew-resize}
+.bar .h-l{left:-3px}
+.bar .h-r{right:-3px}
+.bar.pin{border-left:4px solid var(--fg)}
+.bar.late{outline:2px solid var(--warn);outline-offset:1px}
+.bar.dragging{outline:2px solid var(--fg);outline-offset:1px}
+.bar:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+.bar-label{position:absolute;top:0;height:var(--rowh);line-height:var(--rowh);z-index:1;padding-left:6px;white-space:nowrap;
+  font-family:var(--font-num);font-size:11px;color:var(--muted);pointer-events:none}
+.bar-label .flag{color:var(--warn);font-weight:700;font-family:var(--font-body);margin-left:4px}
+#tip{position:fixed;z-index:10;background:var(--fg);color:var(--bg);padding:6px 10px;border-radius:4px;font-size:12px;line-height:1.5;pointer-events:none;max-width:260px}
+#tip b{display:block}
+
+/* 並べ替え */
+.dots{display:inline-block;width:8px;height:14px;vertical-align:middle;background-image:radial-gradient(circle,var(--muted) 1.2px,transparent 1.7px);background-size:4px 5px}
+td.grip{width:26px;padding-right:0}
+.grip-h{background:none;border:0;padding:6px 5px;cursor:grab;touch-action:none;border-radius:3px;line-height:1;user-select:none;-webkit-user-select:none}
+.grip-h:hover{background:var(--head)}
+tr.moving td,.g-row.moving .g-label{opacity:.45}
+.g-row .g-label{cursor:grab}
+.g-grip{display:inline-block;padding:0 6px 0 0;touch-action:none}
+.g-row.drop-before .g-label,.g-row.drop-before .g-track{box-shadow:inset 0 2px 0 var(--fg)}
+.g-row.drop-after .g-label,.g-row.drop-after .g-track{box-shadow:inset 0 -2px 0 var(--fg)}
+body.drag-move,body.drag-move *{cursor:grabbing!important}
+body.drag-size,body.drag-size *{cursor:ew-resize!important}
+tr.drop-before td{box-shadow:inset 0 2px 0 var(--fg)}
+tr.drop-after td{box-shadow:inset 0 -2px 0 var(--fg)}
+body.drag-order,body.drag-order *{cursor:grabbing!important;user-select:none;-webkit-user-select:none}
+
+/* 共有用テキスト */
+.out{display:block;width:100%;min-height:120px;resize:vertical;border:1px solid var(--cell-line);background:var(--cell);border-radius:3px;
+  padding:14px 16px;font-family:var(--font-body);font-size:14px;line-height:1.7;white-space:pre;overflow-x:auto;overflow-y:hidden}
+.status.warn{color:var(--warn)}
+#shareUrl{width:100%;font-family:var(--font-num);font-size:12px;background:var(--surface);border:1px solid var(--line);border-radius:3px;padding:6px 8px}
+
+/* スマホでは、予定表を1件ずつのカードにする */
+@media (max-width:640px){
+  :root{--label:112px}
+  .tbl-scroll{border:0;background:none;overflow:visible}
+  table,tbody{display:block;min-width:0}
+  thead{display:none}
+  #rows tr{display:grid;grid-template-columns:24px 84px 1fr 1fr;gap:6px 8px;align-items:center;padding:10px 10px 10px 4px;
+    border:1px solid var(--line);background:var(--surface);margin-bottom:8px;border-radius:4px}
+  #rows td{display:block;border:0;padding:0;white-space:normal;width:auto}
+  td.grip{grid-row:1 / 5;grid-column:1;align-self:start}
+  td.name{grid-column:2 / 5}
+  td.name input{min-width:0}
+  td.dur{grid-column:2}
+  td.dur input{width:100%}
+  td.start{grid-column:3}
+  td.date[data-c="e"]{grid-column:4}
+  td.date[data-c="e"]::before{content:attr(data-l) "　";color:var(--muted);font-size:11px;font-family:var(--font-body)}
+  td.who{grid-column:2 / 5}
+  td.ops{grid-column:2 / 5}
+  tr.drop-before{box-shadow:0 -3px 0 var(--fg)}
+  tr.drop-after{box-shadow:0 3px 0 var(--fg)}
+  tr.drop-before td,tr.drop-after td{box-shadow:none}
+}
+</style>
+</head><body>
+
+<div class="wrap">
+  <header>
+    <nav class="tools" aria-label="ツール"><a href="index.html">営業日スケジューラ</a><a href="task.html">タスクスケジューラ（1日の仕事）</a><span aria-current="page">タイムスケジューラ</span></nav>
+    <h1>タイムスケジューラ</h1>
+    <p class="lede">予定と所要時間を入れると、開始時刻から順に時間を割り振ります。旅行や出張のように何日かにわたる予定は、日ごとに分けて組めます。黄色のところが入力欄です。</p>
+  </header>
+
+  <div class="banner" id="banner" role="status" aria-live="polite" hidden></div>
+
+  <section class="bar-row" aria-label="プラン">
+    <label class="fld"><span>プラン</span><select id="planSel"></select></label>
+    <label class="fld grow"><span>名前</span><input type="text" id="planName" placeholder="例：京都旅行"></label>
+    <div class="row-actions">
+      <button type="button" class="btn plain" id="planNew">＋ 新しいプラン</button>
+      <button type="button" class="btn plain" id="planDup">複製</button>
+      <button type="button" class="btn plain" id="planDel">削除</button>
+    </div>
+  </section>
+
+  <section aria-label="メンバー">
+    <div class="members" id="members"></div>
+    <p class="hint" id="memHint"></p>
+  </section>
+
+  <section aria-label="日付">
+    <div class="tabs" role="tablist" id="tabs" aria-label="日付"></div>
+    <div class="bar-row">
+      <label class="fld"><span>日付</span><input type="date" id="dayDate"></label>
+      <label class="fld"><span>開始時刻</span><input type="time" id="dayStart" step="300"></label>
+      <label class="fld grow"><span>タイトル</span><input type="text" id="dayTitle" placeholder="例：京都観光（空欄でもOK）"></label>
+      <button type="button" class="btn plain" id="dayDel">この日を削除</button>
+    </div>
+    <div class="summary" id="summary" role="status" aria-live="polite"></div>
+  </section>
+
+  <div class="notices" id="notices" role="status" aria-live="polite" hidden></div>
+
+  <section>
+    <h2>予定</h2>
+    <div class="tbl-scroll">
+      <table>
+        <thead><tr><th></th><th>予定</th><th id="thWho" hidden>だれ</th><th>所要時間</th><th>開始時刻</th><th>終了</th><th></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <div class="row-actions">
+      <button type="button" class="btn" id="addItem">＋ 予定を追加</button>
+      <button type="button" class="btn plain" id="addHead">＋ 見出しを追加</button>
+      <span class="status" id="rowStatus" role="status" aria-live="polite"></span>
+    </div>
+    <p class="hint">所要時間は「30」（分）、「1:30」、「1時間半」のように書けます。予定は上から順に、前の予定が終わった時刻から始まります。電車の発車時刻など決まった時刻があるときは、その行の開始時刻を書き換えると固定されます（黄色）。× を押すと前に続く形に戻ります。所要時間を空欄にした行は見出しになります。予定名の欄で Enter を押すと、すぐ下に次の行が増えます。<span id="whoHint" hidden>「だれ」を選んだ予定は、その人の前の予定に続きます。全員の予定は、全員がそろってから始まります。</span></p>
+  </section>
+
+  <section>
+    <h2>ガントチャート</h2>
+    <div class="legend" id="legend"></div>
+    <div class="g-scroll" id="gantt"></div>
+    <div class="row-actions">
+      <span class="status" id="ganttStatus" role="status" aria-live="polite"></span>
+      <button type="button" class="btn plain" id="undo" hidden>元に戻す</button>
+    </div>
+    <p class="hint">バーを左右にドラッグすると開始時刻が変わり、その時刻に固定されます（後ろの予定もずれます）。バーの右端をドラッグすると所要時間、左端をドラッグすると終わりはそのままで開始時刻が変わります。5分刻みで動きます。予定名を上下にドラッグすると順番を入れ替えられます。キーボードでは、バーを選んで ← → で移動、Shift＋← → で所要時間を変更できます。</p>
+  </section>
+
+  <section>
+    <h2>共有用テキスト</h2>
+    <textarea class="out" id="text" spellcheck="false" aria-label="共有用テキスト（編集できます）" placeholder="■ 10/10（土） 1日目&#10;8:00-8:15 東京駅に集合&#10;新幹線で京都へ 2時間15分"></textarea>
+    <p class="status" id="textStatus" role="status" aria-live="polite" hidden></p>
+    <div class="row-actions">
+      <button type="button" class="btn" id="copyText">テキストをコピー</button>
+      <button type="button" class="btn plain" id="copyDay" hidden>この日だけコピー</button>
+      <button type="button" class="btn plain" id="copyTable">表としてコピー</button>
+      <span class="status" id="copyStatus" role="status" aria-live="polite"></span>
+    </div>
+    <p class="hint">このテキストは直接書き換えられ、表とガントチャートに反映されます。「■ 10/10（土） 1日目」の行が日の区切りです。「8:00-8:15 集合」のように時刻を書いた行はその時刻の予定になり（前の予定とつながらない時刻は固定）、「昼食 1時間」のように所要時間だけ書いた行は前の予定に続きます。「[Aさん] 」をつけるとその人の予定になります。時刻も所要時間もない行は見出しです。「表としてコピー」は、スプレッドシートにそのまま貼れる形式（日付・開始・終了・予定・所要時間。メンバーがいるときは「だれ」も）です。</p>
+  </section>
+
+  <section>
+    <h2>共有リンク</h2>
+    <div class="row-actions">
+      <button type="button" class="btn plain" id="share">共有リンクをコピー</button>
+      <span class="status" id="shareStatus" role="status" aria-live="polite"></span>
+    </div>
+    <input type="text" id="shareUrl" readonly hidden aria-label="共有リンク">
+    <p class="hint">プランの中身をまるごとリンクに入れます。開いた人のブラウザに、このプランのコピーが追加されます。あとから編集した内容は相手には反映されないので、変えたときはリンクを送り直してください。</p>
+  </section>
+</div>
+<div id="tip" hidden></div>
+
+<script>
+(function(){
+'use strict';
+
+var KEY = 'daysched.v1', MAXDAYS = 60, MAXITEMS = 300;
+var DOW = ['日','月','火','水','木','金','土'];
+
+// ---- 時刻（その日の 0:00 からの分で扱う。1440 以上は翌日）----
+function p2(x){ return (x<10?'0':'')+x; }
+function half(s){ return String(s==null?'':s).replace(/[０-９．：]/g,function(c){return String.fromCharCode(c.charCodeAt(0)-0xFEE0);}); }
+function parseTime(s){
+  var m = /^\s*(\d{1,2}):(\d{2})\s*$/.exec(half(s)); if (!m) return null;
+  var h = +m[1], mi = +m[2]; return (h<24 && mi<60) ? h*60+mi : null;
+}
+function hhmm(m){ m = Math.max(0, Math.min(1439, m)); return p2(Math.floor(m/60))+':'+p2(m%60); }
+function fmt(m){ var nx = m>=1440; if (nx) m -= 1440; return (nx?'翌':'')+Math.floor(m/60)+':'+p2(m%60); }
+function fmtDur(m){ var h = Math.floor(m/60), mi = m%60; return (h?h+'時間':'')+(mi||!h?mi+'分':''); }
+function durStr(m){ return m>=60 ? Math.floor(m/60)+':'+p2(m%60) : String(m); }
+// 「30」「1:30」「1時間半」「90分」「1.5h」などを分にする
+function parseDur(v){
+  var s = half(v).trim().toLowerCase().replace(/\s+/g,'').replace(/時間半$/,'時間30分'), m, total = 0;
+  if (!s) return 0;
+  if ((m = /^(\d+):(\d{1,2})$/.exec(s))) total = (+m[1])*60 + (+m[2]);
+  else if ((m = /^(?:(\d+(?:\.\d+)?)(?:h|hr|時間))?(?:(\d+(?:\.\d+)?)(?:m|min|分)?)?$/.exec(s)) && (m[1]||m[2]))
+    total = (m[1]?parseFloat(m[1])*60:0) + (m[2]?parseFloat(m[2]):0);
+  total = Math.round(total);
+  return total>0 ? Math.min(total, 3*1440) : 0;
+}
+
+// ---- 日付（1970/1/1 からの通し日数）----
+function ymd(y,m,d){ return Math.round(Date.UTC(y,m-1,d)/864e5); }
+function parseDate(s){
+  var m = /^\s*(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})\s*$/.exec(String(s||''));
+  return m ? ymd(+m[1],+m[2],+m[3]) : null;
+}
+function parts(n){ var d=new Date(n*864e5); return {y:d.getUTCFullYear(), m:d.getUTCMonth()+1, d:d.getUTCDate(), w:d.getUTCDay()}; }
+function iso(n){ var p=parts(n); return p.y+'-'+p2(p.m)+'-'+p2(p.d); }
+function slash(n){ var p=parts(n); return p.y+'/'+p2(p.m)+'/'+p2(p.d); }
+function mdw(n){ var p=parts(n); return p.m+'/'+p.d+'（'+DOW[p.w]+'）'; }
+function today(){ var d=new Date(); return ymd(d.getFullYear(), d.getMonth()+1, d.getDate()); }
+
+// ---- スケジュール計算 ----
+function itemName(t){ return '「'+(String(t.name||'').trim()||'名前なし')+'」'; }
+
+// 上から順に、前の予定に続けて詰める。開始時刻を指定した予定だけはその時刻に始め、続く予定はその後ろに並ぶ。
+// メンバーが2人以上いるときは人ごとに時刻を進める：その人の予定はその人の前の予定に続き、全員の予定は全員がそろってから始まる。
+function lanesOf(members){ return members && members.length > 1 ? members.map(function(m){ return m.id; }) : []; }
+function computeDay(day, members){
+  var S = parseTime(day.start), rows = [], issues = [];
+  var res = {rows:rows, issues:issues, minS:null, maxE:null};
+  if (S == null) {
+    day.items.forEach(function(){ rows.push({s:null,e:null}); });
+    issues.push({level:'warn', msg:'開始時刻を入れてください。'});
+    return res;
+  }
+  var lanes = lanesOf(members), cur = {}, placed = {}, keys = lanes.length ? lanes : ['_'];
+  keys.forEach(function(k){ cur[k] = S; placed[k] = false; });
+  day.items.forEach(function(t){
+    var dur = parseDur(t.dur);
+    if (!dur) { rows.push({s:null,e:null}); return; }
+    var who = lanes.indexOf(t.who) >= 0 ? t.who : '';
+    var mine = who ? [who] : keys;
+    var base = Math.max.apply(null, mine.map(function(k){ return cur[k]; }));
+    var any = mine.some(function(k){ return placed[k]; });
+    var row = {who:who}, s = base, f = parseTime(t.at);
+    if (f != null) {
+      s = f; row.pin = true;
+      if (any && s < base) {
+        row.over = base - s;
+        issues.push({level:'warn', msg:itemName(t)+'は '+fmt(s)+'開始ですが、前の予定が '+fmt(base)+'まで続くため '+fmtDur(base-s)+'重なっています。前の予定を短くするか、時刻を見直してください。'});
+      } else if (any && s > base) row.gap = s - base;
+    }
+    row.s = s; row.e = s + dur; rows.push(row);
+    mine.forEach(function(k){ cur[k] = row.e; placed[k] = true; });
+    if (res.minS==null || s<res.minS) res.minS = s;
+    if (res.maxE==null || row.e>res.maxE) res.maxE = row.e;
+  });
+  if (res.maxE != null && res.maxE > 1440) issues.push({level:'info', msg:'この日の予定は日付をまたいで '+fmt(res.maxE)+'まで続きます。'});
+  return res;
+}
+function computeAll(plan){ return plan.days.map(function(d){ return computeDay(d, plan.members); }); }
+
+function dayTitle(day, i, n){
+  var out = [], d = parseDate(day.date), title = String(day.title||'').trim();
+  if (d != null) out.push(mdw(d));
+  if (n > 1) out.push((i+1)+'日目');
+  if (title) out.push(title);
+  return out.join(' ');
+}
+function memberName(plan, id){
+  var m = (plan.members||[]).filter(function(x){ return x.id===id; })[0];
+  return m ? (String(m.name||'').trim() || '名前なし') : '';
+}
+function buildText(plan, results, only){
+  var lines = [], n = plan.days.length;
+  plan.days.forEach(function(day, i){
+    if (only != null && i !== only) return;
+    var title = dayTitle(day, i, n), afterTitle = false;
+    if (lines.length) lines.push('');
+    if (title) { lines.push('■ '+title); afterTitle = true; }
+    day.items.forEach(function(t, j){
+      var name = String(t.name||'').trim(), r = results[i].rows[j];
+      if (!name) return;
+      if (r.s == null) { if (lines.length && !afterTitle && lines[lines.length-1] !== '') lines.push(''); lines.push(name); }
+      else lines.push(fmt(r.s)+'-'+fmt(r.e)+' '+(r.who?'['+memberName(plan, r.who)+'] ':'')+name);
+      afterTitle = false;
+    });
+  });
+  return lines.join('\n');
+}
+function buildTsv(plan, results){
+  var clean = function(s){ return String(s||'').trim().replace(/[\t\r\n]+/g,' '); };
+  var multi = lanesOf(plan.members).length > 0;
+  var out = [['日付','開始','終了'].concat(multi?['だれ']:[], ['予定','所要時間']).join('\t')];
+  plan.days.forEach(function(day, i){
+    var d = parseDate(day.date), label = d!=null ? slash(d) : (i+1)+'日目';
+    day.items.forEach(function(t, j){
+      var name = clean(t.name), r = results[i].rows[j]; if (!name) return;
+      var who = multi ? [r.s==null ? '' : r.who ? clean(memberName(plan, r.who)) : '全員'] : [];
+      out.push([label, r.s==null?'':fmt(r.s), r.e==null?'':fmt(r.e)].concat(who, [name, r.s==null?'':fmtDur(r.e-r.s)]).join('\t'));
+    });
+  });
+  return out.join('\n');
+}
+
+// 共有用テキストを読み取ってプランに戻す。「■」の行が日の区切り（日付・○日目・タイトル）。
+// 「8:00-8:15 名前」はその時刻の予定。時刻を書き換えていない行は元のまま（固定なら固定、前に続くなら前に続く）にし、
+// 書き換えた行や新しい行は、その人（全員の予定なら全員）の前の予定の終わりとずれていれば開始時刻を固定する。
+// 「名前 1時間」は前に続く予定、「[Aさん] 」はその人の予定、時刻も所要時間もない行は見出し。
+// results は編集前の計算結果（書き換えていない行を見分けるのに使う）。
+function parsePlanText(text, plan, results){
+  var members = plan.members || [], lanes = lanesOf(members), keys = lanes.length ? lanes : ['_'];
+  var bad = [], unknown = [], sections = [], sec = null;
+  String(text||'').split('\n').forEach(function(raw){
+    var line = half(raw).trim();
+    if (/^■/.test(line)) { sec = {head:line.replace(/^■\s*/, ''), lines:[]}; sections.push(sec); return; }
+    if (!sec) { sec = {head:null, lines:[]}; sections.push(sec); }
+    sec.lines.push(raw);
+  });
+  // 「■」より前に書いた行は、最初の日に入れる
+  if (sections.length > 1 && sections[0].head === null) { sections[1].lines = sections[0].lines.concat(sections[1].lines); sections.shift(); }
+  var prevDate = null;
+  var days = sections.map(function(sc, i){
+    var old = plan.days[i], res = results && results[i];
+    // 見出し行から日付・タイトルを取り出す（年は前の日か、元の日付に一番近い年にする）
+    var date = old ? old.date : '', title = old ? old.title : '';
+    if (sc.head !== null) {
+      var h = sc.head, m = /(\d{1,2})\/(\d{1,2})(?:\s*[（(][日月火水木金土][)）])?/.exec(h);
+      if (m) {
+        var ref = prevDate != null ? prevDate : (old && parseDate(old.date) != null ? parseDate(old.date) : today()), y = parts(ref).y, best = null;
+        [y-1, y, y+1].forEach(function(yy){ var n = ymd(yy, +m[1], +m[2]); if (best == null || Math.abs(n-ref) < Math.abs(best-ref)) best = n; });
+        date = iso(best); h = h.replace(m[0], '');
+      } else date = '';
+      title = h.replace(/\d+日目/, '').trim();
+    }
+    if (parseDate(date) != null) prevDate = parseDate(date);
+    // 編集前の予定を名前ごとに並べておき、上から順に対応づけて id・固定・だれを引き継ぐ
+    var pool = {};
+    if (old) old.items.forEach(function(t, j){
+      var k = String(t.name||'').trim(), r = res && res.rows[j];
+      (pool[k] = pool[k] || []).push({id:t.id, at:t.at, who:t.who, s:r ? r.s : null});
+    });
+    var take = function(name){ var l = pool[name]; return l && l.length ? l.shift() : null; };
+    var S0 = parseTime(old ? old.start : '') , start = null, cur = {}, items = [];
+    if (S0 == null) S0 = 540;
+    keys.forEach(function(k){ cur[k] = S0; });
+    var whoOf = function(line){
+      var mm = /^\[([^\]]*)\]\s*/.exec(line); if (!mm) return {who:'', rest:line};
+      var name = mm[1].trim(), mem = members.filter(function(x){ return String(x.name||'').trim() === name; })[0];
+      if (!mem && name && name !== '全員' && unknown.indexOf(name) < 0) unknown.push(name);
+      return {who:mem && lanes.indexOf(mem.id) >= 0 ? mem.id : '', rest:line.slice(mm[0].length)};
+    };
+    sc.lines.forEach(function(raw){
+      var line = half(raw).trim(), m, w;
+      if (!line) return;
+      if ((m = /^(翌)?(\d{1,2}):(\d{2})\s*[-~〜～–—]\s*(翌)?(\d{1,2}):(\d{2})\s*(.*)$/.exec(line))) {
+        if (+m[2] > 23 || +m[3] > 59 || +m[5] > 23 || +m[6] > 59) { bad.push(raw.trim()); return; }
+        var s = (+m[2])*60 + (+m[3]) + (m[1]?1440:0), e = (+m[5])*60 + (+m[6]) + (m[4]?1440:0), at = '';
+        if (e <= s) e += 1440;
+        w = whoOf(m[7].trim());
+        var name = w.rest.trim(), o = take(name), mine = w.who ? [w.who] : keys;
+        if (start == null && !items.some(function(x){ return parseDur(x.dur); })) { start = s; keys.forEach(function(k){ cur[k] = s; }); }
+        var base = Math.max.apply(null, mine.map(function(k){ return cur[k]; }));
+        if (o && o.s === s && (o.who||'') === w.who) at = o.at || '';
+        else if (s < 1440 && s !== base) at = hhmm(s);
+        mine.forEach(function(k){ cur[k] = e; });
+        items.push({id:o ? o.id : nid(), name:name, dur:durStr(e - s), at:at, who:w.who});
+        return;
+      }
+      w = whoOf(line);
+      if ((m = /^(.*\S)\s+(\d+(?:\.\d+)?\s*(?:分|min|m|時間半?|h|hr)|\d+時間\d+分|\d+:\d{2})$/.exec(w.rest)) && parseDur(m[2])) {
+        var dur = parseDur(m[2]), mine2 = w.who ? [w.who] : keys, b2 = Math.max.apply(null, mine2.map(function(k){ return cur[k]; })), o2 = take(m[1].trim());
+        mine2.forEach(function(k){ cur[k] = b2 + dur; });
+        items.push({id:o2 ? o2.id : nid(), name:m[1].trim(), dur:durStr(dur), at:'', who:w.who});
+        return;
+      }
+      // 書きかけの時刻（「9:0」など）は見出しにせず、読めなかった行として知らせる
+      if (/^(翌)?\d/.test(line)) { bad.push(raw.trim()); return; }
+      var o3 = take(line);
+      items.push({id:o3 ? o3.id : nid(), name:line, dur:'', at:'', who:''});
+    });
+    return {id:old ? old.id : nid(), date:date, title:title, start:start != null && start < 1440 ? hhmm(start) : hhmm(S0), items:items.length ? items : [blankItem('', '30')]};
+  });
+  return {days:days.length ? days : [blankDay()], bad:bad, unknown:unknown};
+}
+
+// ---- データの形（保存・共有リンクの両方で使う）----
+// store = {v, current, plans:[plan]} / plan = {id, name, dayIdx, members:[member], days:[day]}
+// member = {id, name, color（0〜5）} / day = {id, date, title, start, items:[item]}
+// item = {id, name, dur, at（開始時刻の指定。空なら前に続く）, who（メンバーの id。空なら全員）}
+var MAXMEMBERS = 8, NCOLORS = 6;
+function nid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+function str(v, max){ return String(v==null?'':v).slice(0, max||200); }
+function okId(v){ return typeof v==='string' && /^[a-z0-9]{1,40}$/i.test(v); }
+function blankItem(name, dur){ return {id:nid(), name:name||'', dur:dur==null?'30':dur, at:'', who:''}; }
+function blankDay(date, start){ return {id:nid(), date:date||'', title:'', start:start||'09:00', items:[blankItem('', '30')]}; }
+function normalizePlan(o, fresh){
+  if (!o || typeof o!=='object' || !Array.isArray(o.days)) return null;
+  // メンバーの id は予定の who から参照されるので、作り直すときは対応表で付け替える
+  var idmap = {};
+  var members = (Array.isArray(o.members) ? o.members.slice(0, MAXMEMBERS) : []).map(function(m){
+    m = m && typeof m==='object' ? m : {};
+    var id = (!fresh && okId(m.id)) ? m.id : nid(), c = Math.floor(+m.color);
+    if (m.id != null) idmap[String(m.id)] = id;
+    return {id:id, name:str(m.name,40), color:(c>=0 && c<NCOLORS) ? c : 0};
+  });
+  var days = o.days.slice(0, MAXDAYS).map(function(d){
+    d = d && typeof d==='object' ? d : {};
+    var dd = parseDate(d.date), st = parseTime(d.start);
+    var items = Array.isArray(d.items) ? d.items.slice(0, MAXITEMS) : [];
+    return {id:(!fresh && okId(d.id)) ? d.id : nid(), date:dd!=null?iso(dd):'', title:str(d.title), start:st!=null?hhmm(st):'09:00',
+      items:items.map(function(t){
+        t = t && typeof t==='object' ? t : {};
+        var at = parseTime(t.at);
+        if (t.start && t.start !== 'fixed') at = null;   // 旧形式（開始タイミングあり）のデータ
+        var who = t.who != null && idmap.hasOwnProperty(String(t.who)) ? idmap[String(t.who)] : '';
+        return {id:(!fresh && okId(t.id)) ? t.id : nid(), name:str(t.name), dur:str(t.dur,20), at:at!=null?hhmm(at):'', who:who};
+      })};
+  });
+  if (!days.length) days = [blankDay()];
+  return {id:(!fresh && okId(o.id)) ? o.id : nid(), name:str(o.name,100) || 'プラン',
+    dayIdx:fresh ? 0 : Math.max(0, Math.min(days.length-1, +o.dayIdx||0)), members:members, days:days};
+}
+// 共有リンクに入れる中身（id や選択中の日は入れない）
+function packPlan(p){
+  return {name:p.name, members:p.members, days:p.days.map(function(d){
+    return {date:d.date, title:d.title, start:d.start, items:d.items.map(function(t){
+      return {name:t.name, dur:t.dur, at:t.at, who:t.who};
+    })};
+  })};
+}
+
+// テスト用に計算部分だけ取り出せるようにしておく
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {parsePlanText:parsePlanText, computeDay:computeDay, buildText:buildText, buildTsv:buildTsv, parseDur:parseDur, parseTime:parseTime,
+    computeAll:computeAll, fmt:fmt, fmtDur:fmtDur, durStr:durStr, normalizePlan:normalizePlan, packPlan:packPlan};
+  return;
+}
+
+// ---- 共有リンクの符号化（圧縮できるブラウザでは deflate、だめなら素の JSON）----
+function b64u(bytes){
+  var s = '', i; for (i=0;i<bytes.length;i+=0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i+0x8000));
+  return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+function unb64u(s){
+  var bin = atob(s.replace(/-/g,'+').replace(/_/g,'/')), out = new Uint8Array(bin.length), i;
+  for (i=0;i<bin.length;i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+function encodePlan(p){
+  var bytes = new TextEncoder().encode(JSON.stringify(packPlan(p)));
+  if (!window.CompressionStream) return Promise.resolve('j'+b64u(bytes));
+  return new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer()
+    .then(function(b){ return 'z'+b64u(new Uint8Array(b)); }, function(){ return 'j'+b64u(bytes); });
+}
+function decodePlan(code){
+  return new Promise(function(ok){
+    var kind = code.charAt(0), bytes = unb64u(decodeURIComponent(code.slice(1)));
+    if (kind==='z') {
+      if (!window.DecompressionStream) throw new Error('unsupported');
+      ok(new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text());
+    } else if (kind==='j') ok(new TextDecoder().decode(bytes));
+    else throw new Error('unknown');
+  }).then(function(text){ return JSON.parse(text); });
+}
+
+// ---- 状態 ----
+function samplePlan(){
+  var t = today(), w = parts(t).w, sat = t + (((6-w)+7)%7 || 7);
+  var day = function(date, start, list){
+    return {id:nid(), date:iso(date), title:'', start:start, items:list.map(function(x){
+      return {id:nid(), name:x[0], dur:x[1], at:x[2]||'', who:x[3]==='A'?A:x[3]==='B'?B:''};
+    })};
+  };
+  var A = nid(), B = nid();
+  return {id:nid(), name:'京都旅行（サンプル）', dayIdx:0, members:[{id:A, name:'Aさん', color:0}, {id:B, name:'Bさん', color:1}], days:[
+    day(sat, '08:00', [
+      ['東京駅に集合','15'],
+      ['新幹線で京都へ','2:15','08:30'],
+      ['ホテルに荷物を預ける','30'],
+      ['昼食','1:00'],
+      ['清水寺','1:30'],
+      ['二年坂・三年坂を散策','1:00'],
+      ['祇園を散策','1:30'],
+      ['夕食','1:30','18:00'],
+      ['ホテルにチェックイン','30']
+    ]),
+    day(sat+1, '09:00', [
+      ['チェックアウト','15'],
+      ['伏見稲荷大社','2:00'],
+      ['昼食','1:00'],
+      ['【午後は別行動】',''],
+      ['錦市場で食べ歩き','1:30','','A'],
+      ['お土産を買う','45','','A'],
+      ['京都国立博物館','2:30','','B'],
+      ['京都駅に集合','15'],
+      ['新幹線で東京へ','2:15','16:30']
+    ])
+  ]};
+}
+function load(){
+  try {
+    var raw = localStorage.getItem(KEY);
+    if (raw) {
+      var s = JSON.parse(raw), plans = s && Array.isArray(s.plans) ? s.plans.map(function(p){ return normalizePlan(p, false); }).filter(Boolean) : [];
+      if (plans.length) {
+        var cur = plans.some(function(p){ return p.id===s.current; }) ? s.current : plans[0].id;
+        return {v:1, current:cur, plans:plans};
+      }
+    }
+  } catch(e){}
+  var p = samplePlan();
+  return {v:1, current:p.id, plans:[p]};
+}
+function save(){ try { localStorage.setItem(KEY, JSON.stringify(store)); } catch(e){} }
+
+var store = load();
+var last = null, results = [];
+var $ = function(id){ return document.getElementById(id); };
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function plan(){ return store.plans.filter(function(p){ return p.id===store.current; })[0] || store.plans[0]; }
+function curDay(){ var p = plan(); return p.days[p.dayIdx] || p.days[0]; }
+function items(){ return curDay().items; }
+
+// 2回押しで実行するボタン（削除など、取り消せない操作）
+function armed(btn, label, armedLabel, run){
+  var on = false, timer = null;
+  btn.addEventListener('click', function(){
+    if (!on) {
+      on = true; btn.textContent = armedLabel;
+      timer = setTimeout(function(){ on = false; btn.textContent = label; }, 4000);
+      return;
+    }
+    clearTimeout(timer); on = false; btn.textContent = label;
+    run();
+  });
+}
+
+// ---- 描画 ----
+function renderPlanBar(){
+  var p = plan();
+  $('planSel').innerHTML = store.plans.map(function(x){
+    return '<option value="'+esc(x.id)+'"'+(x.id===p.id?' selected':'')+'>'+esc(x.name||'（名前なし）')+'</option>';
+  }).join('');
+  $('planName').value = p.name;
+}
+function members(){ return plan().members; }
+function multi(){ return members().length > 1; }
+function renderMembers(){
+  var ms = members();
+  $('members').innerHTML = '<span class="lbl">メンバー</span>' +
+    (ms.length > 1 ? '<span class="chip all call"><i class="sw all" aria-hidden="true"></i>全員</span>' : '') +
+    ms.map(function(m){
+      return '<span class="chip c'+m.color+'" data-mid="'+m.id+'"><button type="button" class="sw" data-act="color" aria-label="色を変える" title="色を変える"></button>'+
+        '<input type="text" data-mf="name" value="'+esc(m.name)+'" aria-label="メンバーの名前" placeholder="名前">'+
+        '<button type="button" class="icon" data-act="delmem" aria-label="このメンバーを外す" title="外す">×</button></span>';
+    }).join('') +
+    (ms.length < MAXMEMBERS ? '<button type="button" class="btn plain" data-act="addmem">＋ '+(ms.length ? 'メンバーを追加' : '別行動のメンバーを登録')+'</button>' : '');
+  $('memHint').textContent = ms.length > 1
+    ? '予定ごとに「だれ」を選べます。色は丸を押すと変わります。メンバーを全員外すと、ふつうの1列の予定に戻ります。'
+    : (ms.length === 1 ? 'もう1人追加すると、予定ごとに「だれ」を選べるようになります。' : '複数人で別行動があるときは、メンバーを登録すると予定ごとに「だれ」を選べて、人ごとに色分けされます。');
+}
+function renderTabs(){
+  var p = plan();
+  $('tabs').innerHTML = p.days.map(function(d, i){
+    var dt = parseDate(d.date), sel = i===p.dayIdx;
+    var warn = results[i] && results[i].issues.some(function(x){ return x.level==='warn'; });
+    return '<button type="button" role="tab" class="tab" data-day="'+i+'" aria-selected="'+sel+'" tabindex="'+(sel?0:-1)+'">'+
+      (i+1)+'日目'+(dt!=null?'<small class="num">'+esc(mdw(dt))+'</small>':'')+(warn?'<b class="dot" title="要確認があります">!</b>':'')+'</button>';
+  }).join('') + '<button type="button" class="tab add" data-act="addday">＋ 日を追加</button>';
+}
+function renderDayBar(){
+  var d = curDay(), p = plan();
+  $('dayDate').value = d.date || '';
+  $('dayStart').value = d.start || '';
+  $('dayTitle').value = d.title || '';
+  $('dayDel').disabled = p.days.length < 2;
+  $('copyDay').hidden = p.days.length < 2;
+}
+function renderRows(){
+  $('rowStatus').textContent = '';
+  clearEdit();
+  var p = plan(), list = items(), n = list.length;
+  var ms = members(), on = ms.length > 1;
+  $('thWho').hidden = !on; $('whoHint').hidden = !on;
+  $('rows').innerHTML = list.map(function(t, i){
+    var whoCell = !on ? '' : '<td class="who"><select id="w-'+t.id+'" data-f="who" aria-label="だれ"><option value="">全員</option>'+
+      ms.map(function(m){ return '<option value="'+m.id+'"'+(t.who===m.id?' selected':'')+'>'+esc(m.name||'名前なし')+'</option>'; }).join('')+'</select></td>';
+    var mv = p.days.length < 2 ? '' : '<select class="mvday" data-act="moveday" aria-label="別の日へ移す"><option value="">日を移す</option>'+
+      p.days.map(function(x, j){ return j===p.dayIdx ? '' : '<option value="'+j+'">'+(j+1)+'日目へ</option>'; }).join('')+'</select>';
+    return '<tr data-id="'+t.id+'" data-i="'+i+'">'+
+      '<td class="grip"><button type="button" class="grip-h" aria-label="ドラッグして順番を入れ替え" title="ドラッグして順番を入れ替え"><i class="dots"></i></button></td>'+
+      '<td class="name"><input type="text" id="n-'+t.id+'" data-f="name" value="'+esc(t.name)+'" aria-label="予定" placeholder="予定"></td>'+whoCell+
+      '<td class="dur"><input type="text" id="d-'+t.id+'" data-f="dur" value="'+esc(t.dur)+'" aria-label="所要時間" placeholder="見出し"></td>'+
+      '<td class="date start"><div class="st"><span class="nx" hidden>翌</span><input type="time" step="300" id="f-'+t.id+'" data-f="at" aria-label="開始時刻">'+
+      '<button type="button" class="icon" data-act="unpin" aria-label="時刻の指定を外す" title="時刻の指定を外す（前に続く）">×</button></div><span class="note"></span></td>'+
+      '<td class="date" data-c="e" data-l="終了"></td>'+
+      '<td class="ops"><button type="button" class="icon" data-act="up" aria-label="上へ移動"'+(i===0?' disabled':'')+'>↑</button>'+
+      '<button type="button" class="icon" data-act="down" aria-label="下へ移動"'+(i===n-1?' disabled':'')+'>↓</button>'+
+      '<button type="button" class="icon" data-act="del" aria-label="この行を削除">削除</button>'+mv+'</td></tr>';
+  }).join('');
+}
+function renderAll(){ tFrom = null; renderPlanBar(); renderMembers(); renderDayBar(); renderRows(); update(); }
+
+function update(){
+  var p = plan(), d = curDay();
+  results = computeAll(p); last = results[p.dayIdx];
+  var res = last;
+  // 表の計算結果
+  var trs = $('rows').children;
+  d.items.forEach(function(t, i){
+    var tr = trs[i], r = res.rows[i], isHead = !parseDur(t.dur);
+    if (!tr) return;
+    tr.classList.toggle('is-head', isHead);
+    var m = multi() && !isHead && members().filter(function(x){ return x.id===r.who; })[0];
+    tr.classList.toggle('has-who', multi() && !isHead);
+    tr.className = tr.className.replace(/\bc(\d|all)\b/g,'').trim() + (multi() && !isHead ? ' c'+(m ? m.color : 'all') : '');
+    var ws = tr.querySelector('[data-f="who"]'); if (ws) ws.disabled = isHead;
+    var inp = tr.querySelector('[data-f="at"]'), st = tr.querySelector('.st'), note = tr.querySelector('.note');
+    st.hidden = r.s == null;
+    if (r.s != null) {
+      inp.classList.toggle('auto', !t.at);
+      if (document.activeElement !== inp) inp.value = t.at || hhmm(r.s % 1440);
+      tr.querySelector('.nx').hidden = r.s < 1440;
+      tr.querySelector('[data-act="unpin"]').hidden = !t.at;
+    }
+    note.className = 'note' + (r.over ? ' warn' : '');
+    note.textContent = r.s == null ? (isHead ? '見出し' : '') : r.over ? '前と'+fmtDur(r.over)+'重なり' : r.gap ? '前と'+fmtDur(r.gap)+'空き' : '';
+    tr.querySelector('[data-c="e"]').innerHTML = r.e==null ? '' : esc(fmt(r.e));
+  });
+  // サマリー
+  var sum = [];
+  if (res.minS != null) sum.push('この日：<b>'+esc(fmt(res.minS))+' 〜 '+esc(fmt(res.maxE))+'</b>（'+esc(fmtDur(res.maxE-res.minS))+'）');
+  if (p.days.length > 1) {
+    var dates = p.days.map(function(x){ return parseDate(x.date); }).filter(function(x){ return x!=null; });
+    var range = dates.length ? '<b>'+esc(mdw(Math.min.apply(null,dates)))+' 〜 '+esc(mdw(Math.max.apply(null,dates)))+'</b>' : '';
+    sum.push('全体：'+range+'（'+p.days.length+'日間）');
+  }
+  $('summary').innerHTML = sum.join('　');
+  // 注意書き（どの予定が、どうおかしいか）。ほかの日の要確認も知らせる
+  var order = {warn:0, info:1};
+  var list = res.issues.slice().sort(function(a,b){ return order[a.level]-order[b.level]; });
+  var others = [];
+  results.forEach(function(r, i){ if (i!==p.dayIdx && r.issues.some(function(x){ return x.level==='warn'; })) others.push((i+1)+'日目'); });
+  if (others.length) list.push({level:'info', msg:others.join('・')+'にも要確認があります（タブの ! 印）。'});
+  $('notices').hidden = !list.length;
+  $('notices').innerHTML = list.map(function(x){
+    return '<div class="notice '+x.level+'">'+(x.level==='warn'?'<b>要確認</b>':'')+esc(x.msg)+'</div>';
+  }).join('');
+  renderTabs();
+  renderTimeline(res);
+  // 表・ガント・日付から変えたときは、読めなかった行の警告を消してテキストを作り直す
+  if (!fromText && textBad) { textBad = false; $('textStatus').hidden = true; }
+  if (document.activeElement !== $('text') && !textBad) { $('text').value = buildText(p, results); fitText(); }
+  save();
+}
+
+// ---- ガントチャート（予定ごとに1行。バーの色はだれの予定か）----
+var PX = 1.6, SNAP = 5, tFrom = null, tTo = null;
+function px(m){ return Math.round(m*PX*10)/10; }
+function colorClass(r){
+  if (!multi()) return 'call';
+  var m = members().filter(function(x){ return x.id===r.who; })[0];
+  return m ? 'c'+m.color : 'call';
+}
+function renderTimeline(res){
+  var el = $('gantt'), ms = members(), d = curDay();
+  $('legend').innerHTML = (multi() ? '<span><i class="dot-c call"></i>全員</span>' +
+    ms.map(function(m){ return '<span><i class="dot-c c'+m.color+'"></i>'+esc(m.name||'名前なし')+'</span>'; }).join('') : '') +
+    '<span><i class="k-pin"></i>時刻を指定した予定</span><span><i class="k-now"></i>いま</span><span><i class="k-mid"></i>翌日（24時以降）</span>';
+  if (res.minS == null) { el.innerHTML = '<div class="hint" style="padding:18px">所要時間の入った予定があると、ここに表示されます。</div>'; tFrom = tTo = null; return; }
+  // 左端の時刻は、できるだけ動かさない（編集のたびに横に飛ばないように）。ドラッグ中は完全に止める。
+  var from, to, m;
+  if (drag) from = drag.from;
+  else if (tFrom != null && res.minS - tFrom >= 15 && res.minS - tFrom <= 180) from = tFrom;
+  else from = Math.max(0, Math.floor((res.minS - 30)/60)*60);
+  to = Math.max(Math.ceil((res.maxE + 30)/60)*60, from + 6*60);
+  if (drag) to = Math.max(to, drag.to);
+  var W = px(to - from), hours = '', grid = '';
+  for (m=from; m<to; m+=60) {
+    var hr = Math.floor(m/60), nx = hr >= 24;
+    hours += '<div class="g-hour'+(nx?' next':'')+'" style="width:'+px(60)+'px">'+(nx?'翌'+(hr-24):hr)+':00</div>';
+  }
+  for (m=from+30; m<to; m+=30) grid += '<div class="g-grid'+(m%60?'':' hour')+'" style="left:calc(var(--label) + '+px(m-from)+'px)"></div>';
+  if (to > 1440 && from < 1440) grid += '<div class="g-next" style="left:calc(var(--label) + '+px(1440-from)+'px)"></div>';
+  var dd = parseDate(d.date);
+  if (dd === today()) {
+    var now = new Date(), nm = now.getHours()*60 + now.getMinutes();
+    if (nm >= from && nm <= to) grid += '<div class="g-now" title="いま" style="left:calc(var(--label) + '+px(nm-from)+'px)"></div>';
+  }
+  var rows = d.items.map(function(t, idx){
+    var r = res.rows[idx], name = String(t.name||'').trim();
+    if (!name && r.s==null) return '';
+    var track = '';
+    if (r.s != null) {
+      var left = px(r.s-from) + 1, width = Math.max(6, px(r.e-r.s) - 2);
+      track = '<div class="bar '+colorClass(r)+(r.pin?' pin':'')+(r.over?' late':'')+(drag && drag.id===t.id?' dragging':'')+'" tabindex="0" data-i="'+idx+'" style="left:'+left+'px;width:'+width+'px">'+
+              '<i class="h h-l" data-h="head"></i><i class="h h-r" data-h="tail"></i></div>'+
+              '<div class="bar-label" style="left:'+(left+width)+'px">'+esc(fmt(r.s))+'–'+esc(fmt(r.e))+(r.over?'<span class="flag">重なり</span>':'')+'</div>';
+    }
+    return '<div class="g-row'+(r.s==null?' is-head':'')+'" data-i="'+idx+'"><div class="g-label" title="'+esc(name)+'"><span class="g-grip"><i class="dots"></i></span>'+esc(name||'（名前なし）')+'</div>'+
+           '<div class="g-track" style="width:'+W+'px">'+track+'</div></div>';
+  }).join('');
+  el.innerHTML = '<div class="gantt" style="width:calc(var(--label) + '+W+'px)">'+
+    '<div class="g-row g-head"><div class="g-label">'+(dd!=null?esc(mdw(dd)):'')+'</div><div class="g-track" style="width:'+W+'px">'+hours+'</div></div>'+
+    '<div class="g-body">'+grid+rows+'</div></div>';
+  // 表示範囲の左端が変わったら、そのぶんスクロール位置をずらして見た目を保つ
+  if (tFrom != null && tFrom !== from) el.scrollLeft += px(tFrom - from);
+  tFrom = from; tTo = to;
+}
+
+// ツールチップ
+var tip = $('tip');
+function showTip(bar, x, y){
+  var i = +bar.getAttribute('data-i'), t = items()[i], r = last && last.rows[i]; if (!t || !r || r.s==null) return;
+  var who = multi() ? (r.who ? memberName(plan(), r.who) : '全員') : '';
+  tip.innerHTML = '<b>'+esc(String(t.name||'').trim()||'（名前なし）')+'</b>'+esc(fmt(r.s)+' 〜 '+fmt(r.e)+'・'+fmtDur(r.e-r.s))+
+    (who?'<br>'+esc(who):'')+(r.pin?'<br>'+esc(fmt(r.s))+' に開始（時刻指定）':'');
+  tip.hidden = false;
+  var w = tip.offsetWidth, hgt = tip.offsetHeight;
+  tip.style.left = Math.max(8, Math.min(x+12, window.innerWidth-w-8))+'px';
+  tip.style.top = (y+18+hgt > window.innerHeight ? y-hgt-10 : y+18)+'px';
+}
+$('gantt').addEventListener('mousemove', function(e){
+  if (drag || order) return;
+  var bar = e.target.closest && e.target.closest('.bar');
+  if (bar) showTip(bar, e.clientX, e.clientY); else tip.hidden = true;
+});
+$('gantt').addEventListener('mouseleave', function(){ if (!drag) tip.hidden = true; });
+$('gantt').addEventListener('focusin', function(e){
+  if (e.target.classList.contains('bar')) { var b = e.target.getBoundingClientRect(); showTip(e.target, b.left, b.bottom-10); }
+});
+$('gantt').addEventListener('focusout', function(){ tip.hidden = true; });
+
+// ---- ガントからの編集（ドラッグ／キーボード）----
+var drag = null, lastEdit = null;
+function labelW(){ var l = $('gantt').querySelector('.g-label'); return l ? l.offsetWidth : 150; }
+function minAt(x){
+  var g = $('gantt').querySelector('.gantt'); if (!g) return 0;
+  return tFrom + (x - g.getBoundingClientRect().left - labelW()) / PX;
+}
+function snap(m){ return Math.round(m/SNAP)*SNAP; }
+function syncRow(t){ var d = $('d-'+t.id); if (d) d.value = t.dur; }
+// 元の状態 o から d 分ずらした結果を予定に入れる。
+// move=全体を動かす（開始時刻を固定）／ head=左端（終わりはそのまま、開始時刻を固定）／ tail=右端（所要時間）
+function applyEdit(t, o, kind, d){
+  var s, e;
+  t.dur = o.dur; t.at = o.at;
+  if (!d) return;
+  if (kind==='move') {
+    s = Math.max(0, Math.min(1439, snap(o.s+d)));
+    if (s !== o.s) t.at = hhmm(s);
+  } else if (kind==='head') {
+    s = Math.max(0, Math.min(1439, o.e-SNAP, snap(o.s+d)));
+    if (s !== o.s) { t.dur = durStr(o.e - s); t.at = hhmm(s); }
+  } else {
+    e = Math.max(o.s+SNAP, snap(o.e+d));
+    if (e !== o.e) t.dur = durStr(e - o.s);
+  }
+}
+function clearEdit(){ lastEdit = null; $('undo').hidden = true; $('ganttStatus').textContent = ''; }
+function noteEdit(t, o){
+  var r = last.rows[items().indexOf(t)], msg = [];
+  if (!r || r.s == null) return;
+  var pinned = t.at && t.at !== o.at, resized = parseDur(t.dur) !== parseDur(o.dur);
+  if (pinned) msg.push('を '+fmt(r.s)+'開始に固定');
+  if (resized) msg.push((pinned?'':'の')+'所要時間を '+fmtDur(parseDur(o.dur))+' → '+fmtDur(parseDur(t.dur))+'に変更');
+  if (!msg.length) return;
+  lastEdit = {day:curDay().id, id:t.id, o:o};
+  $('ganttStatus').textContent = itemName(t)+msg.join('し、')+'しました。';
+  $('undo').hidden = false;
+}
+$('undo').addEventListener('click', function(){
+  var le = lastEdit;
+  if (!le || le.day !== curDay().id) { clearEdit(); return; }
+  if (le.order) {
+    items().sort(function(a,b){ return le.order.indexOf(a.id) - le.order.indexOf(b.id); });
+    renderRows(); update();
+  } else {
+    var t = itemById(le.id);
+    if (t) { t.dur = le.o.dur; t.at = le.o.at; syncRow(t); update(); }
+  }
+  clearEdit(); $('ganttStatus').textContent = '元に戻しました。';
+});
+function dragApply(){
+  var t = itemById(drag.id); if (!t) return;
+  var d = snap(minAt(drag.x) - drag.m0);
+  if (d === drag.d) return;
+  drag.d = d;
+  applyEdit(t, drag.o, drag.kind, d);
+  syncRow(t); update();
+  var bar = $('gantt').querySelector('.bar[data-i="'+items().indexOf(t)+'"]');
+  if (bar) showTip(bar, drag.x, drag.y);
+}
+function endDrag(cancel){
+  if (!drag) return;
+  var t = itemById(drag.id), o = drag.o;
+  drag = null;
+  document.body.classList.remove('drag-move','drag-size');
+  tip.hidden = true;
+  if (t && cancel) { t.dur = o.dur; t.at = o.at; }
+  if (t) syncRow(t);
+  update();
+  if (t && (t.dur!==o.dur || t.at!==o.at)) noteEdit(t, o);
+}
+function dragTick(){
+  if (!drag) return;
+  var el = $('gantt'), box = el.getBoundingClientRect(), v = 0, edge = 32;
+  if (drag.x > box.right - edge && drag.x > drag.x0 + 4) v = 8;
+  else if (drag.x < box.left + labelW() + edge && drag.x < drag.x0 - 4) v = -8;
+  if (v) { var before = el.scrollLeft; el.scrollLeft += v; if (el.scrollLeft !== before) dragApply(); }
+  requestAnimationFrame(dragTick);
+}
+$('gantt').addEventListener('pointerdown', function(e){
+  var bar = e.target.closest && e.target.closest('.bar');
+  if (!bar || e.button) return;
+  var i = +bar.getAttribute('data-i'), t = items()[i], r = last && last.rows[i];
+  if (!t || !r || r.s == null) return;
+  e.preventDefault();
+  var kind = e.target.getAttribute('data-h') || 'move';
+  dropSelection();
+  drag = {id:t.id, kind:kind, x:e.clientX, y:e.clientY, x0:e.clientX, m0:minAt(e.clientX), d:0,
+          o:{s:r.s, e:r.e, dur:t.dur, at:t.at}, from:tFrom, to:tTo};
+  document.body.classList.add(kind==='move' ? 'drag-move' : 'drag-size');
+  bar.classList.add('dragging');
+  tip.hidden = true;
+  requestAnimationFrame(dragTick);
+});
+window.addEventListener('pointermove', function(e){ if (!drag) return; drag.x = e.clientX; drag.y = e.clientY; dragApply(); });
+window.addEventListener('pointerup', function(){ endDrag(false); });
+window.addEventListener('pointercancel', function(){ endDrag(true); });
+window.addEventListener('keydown', function(e){ if (drag && e.key==='Escape') endDrag(true); });
+$('gantt').addEventListener('keydown', function(e){
+  if (!e.target.classList.contains('bar') || (e.key!=='ArrowLeft' && e.key!=='ArrowRight')) return;
+  e.preventDefault();
+  var i = +e.target.getAttribute('data-i'), t = items()[i], r = last.rows[i];
+  if (!t || !r || r.s == null) return;
+  var step = (e.key==='ArrowRight' ? 1 : -1) * SNAP, o = {s:r.s, e:r.e, dur:t.dur, at:t.at};
+  if (e.shiftKey) t.dur = durStr(Math.max(SNAP, parseDur(t.dur)+step));
+  else t.at = hhmm(r.s+step);
+  syncRow(t); update(); noteEdit(t, o);
+  var b = $('gantt').querySelector('.bar[data-i="'+i+'"]'); if (b) b.focus();
+});
+
+// ---- メンバー ----
+function memberOf(el){ var c = el.closest('[data-mid]'); return c && members().filter(function(m){ return m.id===c.getAttribute('data-mid'); })[0]; }
+function freeColor(){
+  var used = members().map(function(m){ return m.color; }), c;
+  for (c=0;c<NCOLORS;c++) if (used.indexOf(c) < 0) return c;
+  return members().length % NCOLORS;
+}
+$('members').addEventListener('click', function(e){
+  var b = e.target.closest('button'); if (!b) return;
+  var act = b.getAttribute('data-act'), ms = members(), m = memberOf(b);
+  if (act === 'addmem') {
+    // 1人だけでは意味がないので、最初は2人まとめて追加する
+    var names = 'ABCDEFGH', add = ms.length ? 1 : 2;
+    while (add-- > 0 && ms.length < MAXMEMBERS) ms.push({id:nid(), name:names.charAt(ms.length)+'さん', color:freeColor()});
+  } else if (act === 'color' && m) {
+    m.color = (m.color + 1) % NCOLORS;
+  } else if (act === 'delmem' && m) {
+    ms.splice(ms.indexOf(m), 1);
+    // その人の予定は全員の予定に戻す
+    plan().days.forEach(function(d){ d.items.forEach(function(t){ if (t.who === m.id) t.who = ''; }); });
+  } else return;
+  renderMembers(); renderRows(); update();
+  if (act === 'addmem') { var ins = $('members').querySelectorAll('input'); if (ins.length) { ins[ins.length-1].focus(); ins[ins.length-1].select(); } }
+});
+$('members').addEventListener('input', function(e){
+  var m = memberOf(e.target); if (!m || e.target.getAttribute('data-mf') !== 'name') return;
+  m.name = e.target.value;
+  // 表の「だれ」の選択肢と凡例だけ書き換える（入力中のフォーカスを奪わない）
+  var opts = document.querySelectorAll('#rows [data-f="who"] option[value="'+m.id+'"]'), i;
+  for (i=0;i<opts.length;i++) opts[i].textContent = m.name || '名前なし';
+  update();
+});
+
+function itemById(id){ return items().filter(function(t){ return t.id===id; })[0]; }
+
+// ---- ドラッグで順番を入れ替え（表のつまみ／ガントの予定名）----
+var order = null;
+function orderMarks(clear){
+  var els = document.querySelectorAll(order ? order.sel : '.drop-before,.drop-after,.moving'), i;
+  for (i=0;i<els.length;i++) els[i].classList.remove('drop-before','drop-after','moving');
+  if (clear || !order) return;
+  for (i=0;i<els.length;i++) if (+els[i].getAttribute('data-i') === order.from) els[i].classList.add('moving');
+  if (order.mark) order.mark.el.classList.add(order.mark.cls);
+}
+function orderMove(y){
+  var els = document.querySelectorAll(order.sel), i, r, target = null;
+  if (!els.length) return;
+  for (i=0;i<els.length;i++){ r = els[i].getBoundingClientRect(); if (y < r.top + r.height/2) { target = els[i]; break; } }
+  if (target) { order.to = +target.getAttribute('data-i'); order.mark = {el:target, cls:'drop-before'}; }
+  else { var lastEl = els[els.length-1]; order.to = +lastEl.getAttribute('data-i') + 1; order.mark = {el:lastEl, cls:'drop-after'}; }
+  // 元の位置のすぐ上・すぐ下は「動かさない」なので線を出さない
+  if (order.to === order.from || order.to === order.from + 1) order.mark = null;
+  orderMarks(false);
+}
+function orderEnd(cancel){
+  if (!order) return;
+  var o = order; orderMarks(true); order = null;
+  document.body.classList.remove('drag-order');
+  if (cancel || o.to == null || o.to === o.from || o.to === o.from + 1) return;
+  var list = items(), before = list.map(function(x){ return x.id; });
+  var t = list.splice(o.from, 1)[0], to = o.to > o.from ? o.to - 1 : o.to;
+  list.splice(to, 0, t);
+  renderRows(); update();
+  if (o.fromGantt) {
+    lastEdit = {day:curDay().id, order:before};
+    $('ganttStatus').textContent = itemName(t)+'の順番を入れ替えました。';
+    $('undo').hidden = false;
+  }
+}
+function orderStart(e, sel, idx, fromGantt){
+  e.preventDefault();
+  dropSelection();
+  order = {sel:sel, from:idx, to:null, mark:null, y:e.clientY, y0:e.clientY, fromGantt:!!fromGantt};
+  document.body.classList.add('drag-order');
+  tip.hidden = true;
+  orderMarks(false);
+  requestAnimationFrame(orderTick);
+}
+function orderTick(){
+  if (!order) return;
+  // 画面の端まで持っていったときだけ、ページを少しずつ送る（掴んだ直後には動かさない）
+  var v = (order.y < 48 && order.y < order.y0 - 4) ? -10 : ((order.y > window.innerHeight - 48 && order.y > order.y0 + 4) ? 10 : 0);
+  if (v) { window.scrollBy(0, v); orderMove(order.y); }
+  requestAnimationFrame(orderTick);
+}
+$('rows').addEventListener('pointerdown', function(e){
+  var grip = e.target.closest && e.target.closest('.grip-h');
+  if (!grip || e.button) return;
+  orderStart(e, '#rows tr', +grip.closest('tr').getAttribute('data-i'));
+});
+$('gantt').addEventListener('pointerdown', function(e){
+  var label = e.target.closest && e.target.closest('.g-body .g-row .g-label');
+  if (!label || e.button) return;
+  // 指での操作は、つまみ（点々）からだけ始める。名前の上をなぞったときはページのスクロールを優先する
+  if (e.pointerType !== 'mouse' && !(e.target.closest && e.target.closest('.g-grip'))) return;
+  orderStart(e, '#gantt .g-body .g-row', +label.parentNode.getAttribute('data-i'), true);
+});
+window.addEventListener('pointermove', function(e){ if (!order) return; order.y = e.clientY; orderMove(e.clientY); });
+window.addEventListener('pointerup', function(){ orderEnd(false); });
+window.addEventListener('pointercancel', function(){ orderEnd(true); });
+window.addEventListener('keydown', function(e){ if (order && e.key==='Escape') orderEnd(true); });
+
+// ドラッグ中に文字が選択されたり、ブラウザ標準のドラッグが始まったりしないようにする
+function busy(){ return !!(drag || order); }
+function dropSelection(){ try { var sel = window.getSelection(); if (sel && sel.rangeCount) sel.removeAllRanges(); } catch(e){} }
+document.addEventListener('selectstart', function(e){ if (busy()) e.preventDefault(); });
+document.addEventListener('dragstart', function(e){ if (busy()) e.preventDefault(); });
+
+// ---- 予定表の操作 ----
+function itemOf(el){ var tr = el.closest('tr'); return tr && itemById(tr.getAttribute('data-id')); }
+function onField(e){
+  var f = e.target.getAttribute('data-f'); if (!f) return;
+  clearEdit();
+  var t = itemOf(e.target); if (!t) return;
+  t[f] = e.target.value;
+  update();
+}
+$('rows').addEventListener('input', onField);
+$('rows').addEventListener('change', function(e){
+  if (e.target.getAttribute('data-act') === 'moveday') {
+    // 別の日の最後に移す
+    var p = plan(), j = +e.target.value, t = itemOf(e.target);
+    if (!t || e.target.value === '' || !p.days[j]) return;
+    items().splice(items().indexOf(t), 1);
+    p.days[j].items.push(t);
+    renderRows(); update();
+    $('rowStatus').textContent = itemName(t)+'を'+(j+1)+'日目の最後に移しました。';
+    return;
+  }
+  onField(e);
+});
+$('rows').addEventListener('click', function(e){
+  var act = e.target.getAttribute('data-act'); if (!act || act==='moveday') return;
+  var list = items(), t = itemOf(e.target), i = list.indexOf(t);
+  if (i < 0) return;
+  if (act==='unpin') { clearEdit(); t.at = ''; update(); return; }
+  if (act==='del') list.splice(i,1);
+  if (act==='up' && i>0) { list.splice(i,1); list.splice(i-1,0,t); }
+  if (act==='down' && i<list.length-1) { list.splice(i,1); list.splice(i+1,0,t); }
+  renderRows(); update();
+});
+// 予定名・所要時間の欄で Enter を押したら、その下に新しい行を足して続けて入力できるようにする。
+// 日本語入力の変換を確定する Enter（isComposing / keyCode 229）では足さない。
+function isPlainEnter(e){ return e.key === 'Enter' && !e.isComposing && e.keyCode !== 229 && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey; }
+function addRow(name, dur, after){
+  var t = blankItem(name, dur), list = items(), i = after ? list.indexOf(after) : -1;
+  if (i >= 0) { list.splice(i+1, 0, t); if (parseDur(after.dur)) t.who = after.who || ''; }   // 別行動の続きを入れやすいように「だれ」を引き継ぐ
+  else list.push(t);
+  renderRows(); update();
+  var inp = $('n-'+t.id); if (inp) { inp.focus(); inp.select(); }
+}
+$('rows').addEventListener('keydown', function(e){
+  var f = e.target.getAttribute('data-f');
+  if ((f !== 'name' && f !== 'dur') || !isPlainEnter(e)) return;
+  e.preventDefault();
+  addRow('', '30', itemOf(e.target));
+});
+$('addItem').addEventListener('click', function(){ addRow('', '30'); });
+$('addHead').addEventListener('click', function(){ addRow('【見出し】', ''); });
+
+// ---- 日付タブ・日の設定 ----
+function selectDay(i, focusTab){
+  plan().dayIdx = i; tFrom = null;
+  renderDayBar(); renderRows(); update();
+  if (focusTab) { var b = $('tabs').querySelector('[data-day="'+i+'"]'); if (b) b.focus(); }
+}
+$('tabs').addEventListener('click', function(e){
+  var b = e.target.closest('button'); if (!b) return;
+  if (b.getAttribute('data-act') === 'addday') {
+    var p = plan(), prev = p.days[p.days.length-1], pd = parseDate(prev.date);
+    if (p.days.length >= MAXDAYS) return;
+    p.days.push(blankDay(pd!=null ? iso(pd+1) : '', prev.start));
+    selectDay(p.days.length-1, false);
+    return;
+  }
+  selectDay(+b.getAttribute('data-day'), false);
+});
+$('tabs').addEventListener('keydown', function(e){
+  var b = e.target.closest('[role="tab"]'); if (!b) return;
+  var n = plan().days.length, i = +b.getAttribute('data-day');
+  if (e.key==='ArrowRight') i = (i+1) % n; else if (e.key==='ArrowLeft') i = (i-1+n) % n; else return;
+  e.preventDefault(); selectDay(i, true);
+});
+$('dayDate').addEventListener('input', function(){ curDay().date = this.value; update(); });
+$('dayStart').addEventListener('input', function(){ curDay().start = this.value; update(); });
+$('dayTitle').addEventListener('input', function(){ curDay().title = this.value; update(); });
+armed($('dayDel'), 'この日を削除', 'この日の予定をすべて消す（もう一度押す）', function(){
+  var p = plan(); if (p.days.length < 2) return;
+  p.days.splice(p.dayIdx, 1);
+  selectDay(Math.min(p.dayIdx, p.days.length-1), false);
+  renderDayBar();
+});
+
+// ---- プラン ----
+function flash(msg){ $('banner').textContent = msg; $('banner').hidden = !msg; }
+$('planSel').addEventListener('change', function(){ store.current = this.value; flash(''); renderAll(); });
+$('planName').addEventListener('input', function(){
+  plan().name = this.value;
+  var opt = $('planSel').options[$('planSel').selectedIndex]; if (opt) opt.textContent = this.value || '（名前なし）';
+  save();
+});
+$('planNew').addEventListener('click', function(){
+  var d = blankDay(iso(today()), '09:00');
+  var p = {id:nid(), name:'新しいプラン', dayIdx:0, days:[d]};
+  store.plans.push(p); store.current = p.id; flash('');
+  renderAll();
+  $('planName').focus(); $('planName').select();
+});
+$('planDup').addEventListener('click', function(){
+  var p = normalizePlan(JSON.parse(JSON.stringify(plan())), true);
+  p.name = plan().name + 'のコピー';
+  store.plans.push(p); store.current = p.id;
+  renderAll(); flash('「'+p.name+'」を作りました。');
+});
+armed($('planDel'), '削除', 'このプランを消す（もう一度押す）', function(){
+  var p = plan(), name = p.name;
+  store.plans = store.plans.filter(function(x){ return x.id !== p.id; });
+  if (!store.plans.length) store.plans.push({id:nid(), name:'新しいプラン', dayIdx:0, days:[blankDay(iso(today()), '09:00')]});
+  store.current = store.plans[0].id;
+  renderAll(); flash('「'+(name||'名前なし')+'」を削除しました。');
+});
+
+// ---- 共有用テキストからの編集 ----
+function fitText(){ var ta = $('text'); ta.style.height = 'auto'; ta.style.height = (ta.scrollHeight + 2) + 'px'; }
+var textTimer = null, textBad = false, fromText = false;
+function applyText(){
+  textTimer = null;
+  var p = plan(), r = parsePlanText($('text').value, p, results), msg = [];
+  p.days = r.days;
+  p.dayIdx = Math.min(p.dayIdx, p.days.length - 1);
+  textBad = r.bad.length > 0;
+  fromText = true; renderDayBar(); renderRows(); update(); fromText = false;
+  if (r.bad.length) msg.push('読み取れなかった行（反映していません）：' + r.bad.join('／'));
+  if (r.unknown.length) msg.push('メンバーにいない名前（全員の予定にしました）：' + r.unknown.join('、'));
+  var st = $('textStatus');
+  st.hidden = !msg.length;
+  st.className = 'status' + (msg.length ? ' warn' : '');
+  st.textContent = msg.join('　');
+}
+$('text').addEventListener('input', function(){
+  fitText();
+  clearTimeout(textTimer); textTimer = setTimeout(applyText, 350);
+});
+// 書き終えて欄を離れたら、読み取った結果の形に整える（読めない行が残っているときは、直せるようにそのまま残す）
+$('text').addEventListener('blur', function(){
+  if (textTimer) { clearTimeout(textTimer); applyText(); }
+  if (textBad) return;
+  $('text').value = buildText(plan(), results); fitText();
+});
+
+// ---- コピー ----
+function copy(text, okMsg, statusEl, selectEl){
+  function ok(){ statusEl.textContent = okMsg; }
+  function fallback(){
+    var ta = document.createElement('textarea'); ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
+    document.body.appendChild(ta); ta.select(); var done=false; try { done = document.execCommand('copy'); } catch(e){}
+    document.body.removeChild(ta);
+    if (done) { ok(); return; }
+    if (selectEl) {
+      if (selectEl.select) selectEl.select();
+      else { var r=document.createRange(); r.selectNodeContents(selectEl); var s=window.getSelection(); s.removeAllRanges(); s.addRange(r); }
+    }
+    statusEl.textContent = 'コピーできませんでした。選択した状態にしたので、Cmd+C（Windowsは Ctrl+C）でコピーしてください。';
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(ok, fallback); else fallback();
+}
+$('copyText').addEventListener('click', function(){ copy(buildText(plan(), results), 'テキストをコピーしました。', $('copyStatus'), $('text')); });
+$('copyDay').addEventListener('click', function(){ copy(buildText(plan(), results, plan().dayIdx), (plan().dayIdx+1)+'日目のテキストをコピーしました。', $('copyStatus'), $('text')); });
+$('copyTable').addEventListener('click', function(){ copy(buildTsv(plan(), results), '表をコピーしました。', $('copyStatus'), $('text')); });
+$('share').addEventListener('click', function(){
+  encodePlan(plan()).then(function(code){
+    var url = location.href.split('#')[0] + '#p=' + code, box = $('shareUrl');
+    box.value = url; box.hidden = false;
+    copy(url, '共有リンクをコピーしました。LINE やメールに貼って送れます。', $('shareStatus'), box);
+  });
+});
+
+// ---- 共有リンクから開いたとき ----
+function importFromHash(){
+  var m = /^#p=(.+)$/.exec(location.hash); if (!m) return;
+  decodePlan(m[1]).then(function(obj){
+    var p = normalizePlan(obj, true); if (!p) throw new Error('bad');
+    if (store.plans.some(function(x){ return x.name===p.name; })) p.name += '（共有）';
+    store.plans.push(p); store.current = p.id;
+    history.replaceState(null, '', location.pathname + location.search);
+    renderAll(); flash('共有リンクのプラン「'+p.name+'」を追加しました。ここで編集しても、送ってくれた人の側には反映されません。');
+  }).catch(function(){
+    flash('共有リンクを読み込めませんでした。リンクが途中で切れていないか確認してください。');
+  });
+}
+window.addEventListener('hashchange', importFromHash);
+
+renderAll();
+importFromHash();
+})();
+</script>
+</body></html>

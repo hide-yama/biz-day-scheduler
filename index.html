@@ -2,7 +2,7 @@
 <title>営業日スケジューラ</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
-/* layout: one column, top to bottom in working order — 基準日 → タスク表（黄色＝入力） → ガント → 共有用テキスト */
+/* layout: one column, top to bottom in working order — 基準日 → タスク表（黄色＝入力） → ガント → 共有用テキスト（ここも編集できる） */
 :root{
   --bg:#f7f6f1; --surface:#fffefa; --fg:#23221d; --muted:#6b6858; --line:#dedbcc;
   --cell:#fff2cc; --cell-line:#e3cc74; --head:#efefe6;
@@ -26,6 +26,10 @@
 *,*::before,*::after{box-sizing:border-box}
 body{background:var(--bg);color:var(--fg);font-family:var(--font-body);font-size:14px;line-height:1.7;padding-inline:16px;padding-block:20px 56px}
 .wrap{max-width:980px;margin-inline:auto;display:flex;flex-direction:column;gap:28px}
+header{display:flex;flex-direction:column;gap:6px}
+.tools{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12.5px}
+.tools a{color:var(--bar)}
+.tools [aria-current]{color:var(--muted)}
 h1{font-size:22px;line-height:1.3;margin:0;font-weight:700}
 h2{font-size:15px;margin:0;font-weight:700}
 p{margin:0}
@@ -141,9 +145,10 @@ body.drag-size,body.drag-size *{cursor:ew-resize!important}
 #tip b{display:block}
 
 /* 共有用テキスト */
-.out{border:1px solid var(--line);background:var(--surface);overflow-x:auto}
-.out pre{margin:0;padding:14px 16px;font-family:var(--font-body);font-size:14px;line-height:1.7;white-space:pre}
+.out{display:block;width:100%;min-height:120px;resize:vertical;border:1px solid var(--cell-line);background:var(--cell);border-radius:3px;
+  padding:14px 16px;font-family:var(--font-body);font-size:14px;line-height:1.7;white-space:pre;overflow-x:auto;overflow-y:hidden}
 .status{font-size:12.5px;color:var(--muted)}
+.status.warn{color:var(--warn)}
 details{border-top:1px solid var(--line);padding-top:12px}
 summary{cursor:pointer;font-weight:700}
 details .inner{display:flex;flex-direction:column;gap:8px;padding-top:10px}
@@ -153,6 +158,7 @@ textarea{width:100%;max-width:320px;min-height:96px;font-family:var(--font-num);
 
 <div class="wrap">
   <header>
+    <nav class="tools" aria-label="ツール"><span aria-current="page">営業日スケジューラ</span><a href="task.html">タスクスケジューラ（1日の仕事）</a><a href="day.html">タイムスケジューラ（旅行・複数人）</a></nav>
     <h1>営業日スケジューラ</h1>
     <p class="lede">タスクと日数を入れると、土日・祝日を除いて日付を割り振ります。黄色のところが入力欄で、それ以外は自動で決まります。</p>
   </header>
@@ -205,13 +211,14 @@ textarea{width:100%;max-width:320px;min-height:96px;font-family:var(--font-num);
 
   <section>
     <h2>共有用テキスト</h2>
-    <div class="out"><pre id="text"></pre></div>
+    <textarea class="out" id="text" spellcheck="false" aria-label="共有用テキスト（編集できます）" placeholder="10/5-10/6: 要件整理&#10;デザイン制作 3日"></textarea>
+    <p class="status" id="textStatus" role="status" aria-live="polite" hidden></p>
     <div class="row-actions">
       <button type="button" class="btn" id="copyText">テキストをコピー</button>
       <button type="button" class="btn plain" id="copyTable">表としてコピー</button>
       <span class="status" id="copyStatus" role="status" aria-live="polite"></span>
     </div>
-    <p class="hint">「表としてコピー」は、スプレッドシートにそのまま貼れる形式（タスク名・日数・開始日・終了日）です。</p>
+    <p class="hint">このテキストは直接書き換えられ、表とガントチャートに反映されます。「10/5-10/6: 要件整理」のように日付を書いた行はその期間のタスクになり（日数は営業日で数え直します。前のタスクとつながらない日付は日付固定）、「デザイン制作 3日」のように日数だけ書いた行は上に続きます。日付も日数もない行は見出しです。「表としてコピー」は、スプレッドシートにそのまま貼れる形式（タスク名・日数・開始日・終了日）です。</p>
   </section>
 
   <details id="holidayBox">
@@ -381,9 +388,60 @@ function buildTsv(tasks, rows){
   return out.join('\n');
 }
 
+// 共有用テキストを読み取ってタスクに戻す。
+// 「10/5-10/6: 名前」「10/5: 名前」はその期間のタスク（日数は営業日で数え直す）。日付を書き換えていない行は元の開始タイミングのまま、
+// 書き換えた行や新しい行は、開始日から計算なら「上に続く／上と同時」に当てはまらなければ開始日を固定、納期から逆算なら終了日を固定する。
+// 「名前 3日」は上に続くタスク、日付も日数もない行は見出し。res は編集前の計算結果。
+function parseText(text, st, res){
+  var h = res.h || holidaySet(st.extra), back = st.dir === 'backward', base = parseDate(st.date);
+  var ref = base != null ? base : Math.floor(Date.now()/864e5), first = true, date = st.date;
+  var tasks = [], bad = [], gStart = null, gEnd = null;
+  function biz(s, e){ var c = 0; for (var n=s; n<=e; n++) if (isBiz(n,h)) c++; return Math.max(1, c); }
+  function near(m, d){
+    var y = parts(ref).y, best = null;
+    [y-1, y, y+1].forEach(function(yy){ var n = ymd(yy, m, d); if (best == null || Math.abs(n-ref) < Math.abs(best-ref)) best = n; });
+    return best;
+  }
+  // 編集前のタスクを名前ごとに並べておき、上から順に対応づけて開始タイミングを引き継ぐ
+  var pool = {};
+  st.tasks.forEach(function(t, i){ var k = String(t.name||'').trim(), r = res.rows[i]; (pool[k] = pool[k] || []).push({t:t, s:r ? r.s : null, e:r ? r.e : null}); });
+  function take(name){ var l = pool[name]; return l && l.length ? l.shift() : null; }
+  String(text||'').split('\n').forEach(function(raw){
+    var line = String(raw).replace(/[０-９／：]/g, function(c){ return String.fromCharCode(c.charCodeAt(0)-0xFEE0); }).trim(), m;
+    if (!line) return;
+    if ((m = /^(\d{1,2})\/(\d{1,2})(?:\s*[-~〜～–—]\s*(\d{1,2})\/(\d{1,2}))?(?:\s*:\s*|\s+)(\S.*)$/.exec(line)) && !/^[-~〜～–—\d\/]/.test(m[5]) && +m[1] >= 1 && +m[1] <= 12 && (!m[3] || (+m[3] >= 1 && +m[3] <= 12))) {
+      var s = near(+m[1], +m[2]); ref = s;
+      var e = m[3] ? near(+m[3], +m[4]) : s; if (e < s) { bad.push(String(raw).trim()); return; }
+      ref = e;
+      var name = m[5].trim(), o = take(name), t = {name:name, days:String(biz(s, e)), start:'after', fixed:''};
+      if (o && (back ? o.e === e : o.s === s) && parseDays(o.t.days)) { t.start = o.t.start; t.fixed = o.t.fixed; }
+      else if (back) { t.start = 'fixed'; t.fixed = iso(e); }
+      else if (first) { date = iso(s); }   // 最初のタスクの開始日を、全体の開始日にする
+      else if (gEnd != null && s === shift(gEnd, 1, h)) t.start = 'after';
+      else if (gStart != null && s === gStart) t.start = 'with';
+      else { t.start = 'fixed'; t.fixed = iso(s); }
+      if (t.start === 'with' && gStart != null) gEnd = Math.max(gEnd, e); else { gStart = s; gEnd = e; }
+      first = false;
+      tasks.push(t);
+      return;
+    }
+    if ((m = /^(.*\S)\s+(\d+)\s*(?:営業日|日)$/.exec(line)) && +m[2] > 0) {
+      var o2 = take(m[1].trim()), d = +m[2];
+      if (gEnd != null && !back) { gStart = shift(gEnd, 1, h); gEnd = shift(gStart, d-1, h); }
+      tasks.push({name:m[1].trim(), days:String(d), start:'after', fixed:''});
+      return;
+    }
+    // 書きかけの日付（「10/」など）は見出しにせず、読めなかった行として知らせる
+    if (/^\d/.test(line)) { bad.push(String(raw).trim()); return; }
+    take(line);
+    tasks.push({name:line, days:'', start:'after', fixed:''});
+  });
+  return {tasks:tasks, date:date, bad:bad};
+}
+
 // テスト用に計算部分だけ取り出せるようにしておく
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = {compute:compute, buildText:buildText, buildTsv:buildTsv, parseDate:parseDate, iso:iso, holidaySet:holidaySet, shift:shift};
+  module.exports = {compute:compute, parseText:parseText, buildText:buildText, buildTsv:buildTsv, parseDate:parseDate, iso:iso, holidaySet:holidaySet, shift:shift};
   return;
 }
 
@@ -474,10 +532,12 @@ function update(){
   $('hint').textContent = 'タスクを重ねたいときは「開始タイミング」を変えます。「上と同時」は上のタスクと同じ日に始まり、同時に進めたタスクが全部終わってから次へ進みます。' +
     (back ? '「終了日を固定」はそのタスクを決めた日までに終え、それより上のタスクは固定日に間に合うように逆算します。'
           : '「開始日を固定」はそのタスクを決めた日に始め、続くタスクはその後ろに並びます。') +
-    '日数を空欄にした行は見出しになります。左端のつまみを上下にドラッグすると、順番を入れ替えられます。';
+    '日数を空欄にした行は見出しになります。タスク名の欄で Enter を押すと、すぐ下に次の行が増えます。左端のつまみを上下にドラッグすると、順番を入れ替えられます。';
   $('lgPin').hidden = back; $('lgPinEnd').hidden = !back; $('lgDeadline').hidden = !back;
   renderGantt(res);
-  $('text').textContent = buildText(state.tasks, res.rows) || '（タスクを入れるとここに出ます）';
+  // 表・ガント・基準日から変えたときは、読めなかった行の警告を消してテキストを作り直す
+  if (!fromText && textBad) { textBad = false; $('textStatus').hidden = true; }
+  if (document.activeElement !== $('text') && !textBad) { $('text').value = buildText(state.tasks, res.rows); fitText(); }
   save();
 }
 
@@ -770,12 +830,21 @@ $('rows').addEventListener('click', function(e){
   if (act==='down' && i<state.tasks.length-1) { state.tasks.splice(i,1); state.tasks.splice(i+1,0,t); }
   renderRows(); update();
 });
-function addRow(name, days){
+function addRow(name, days, after){
   state.seq = (state.seq||state.tasks.length)+1;
-  var t = {id:state.seq, name:name, days:days, start:'after', fixed:''};
-  state.tasks.push(t); renderRows(); update();
+  var t = {id:state.seq, name:name, days:days, start:'after', fixed:''}, i = after ? state.tasks.indexOf(after) : -1;
+  if (i >= 0) state.tasks.splice(i+1, 0, t); else state.tasks.push(t);
+  renderRows(); update();
   var inp = $('n-'+t.id); if (inp) { inp.focus(); inp.select(); }
 }
+// タスク名・日数の欄で Enter を押したら、その下に新しい行を足して続けて入力できるようにする。
+// 日本語入力の変換を確定する Enter（isComposing / keyCode 229）では足さない。
+$('rows').addEventListener('keydown', function(e){
+  var f = e.target.getAttribute('data-f');
+  if ((f !== 'name' && f !== 'days') || e.key !== 'Enter' || e.isComposing || e.keyCode === 229 || e.shiftKey || e.altKey || e.metaKey || e.ctrlKey) return;
+  e.preventDefault();
+  addRow('', '1', taskOf(e.target));
+});
 $('addTask').addEventListener('click', function(){ addRow('', '1'); });
 $('addHead').addEventListener('click', function(){ addRow('【見出し】', ''); });
 
@@ -818,6 +887,34 @@ function syncControls(){
 $('baseDate').addEventListener('input', function(){ state.date = this.value; update(); });
 $('extra').addEventListener('input', function(){ state.extra = this.value; update(); });
 
+// ---- 共有用テキストからの編集 ----
+function fitText(){ var ta = $('text'); ta.style.height = 'auto'; ta.style.height = (ta.scrollHeight + 2) + 'px'; }
+var textTimer = null, textBad = false, fromText = false;
+function applyText(){
+  textTimer = null;
+  if (!last) return;
+  var p = parseText($('text').value, state, last);
+  state.tasks = p.tasks.map(function(t){ state.seq = (state.seq||state.tasks.length)+1; t.id = state.seq; return t; });
+  if (!state.tasks.length) { state.seq++; state.tasks.push({id:state.seq, name:'', days:'1', start:'after', fixed:''}); }
+  if (p.date) state.date = p.date;
+  textBad = p.bad.length > 0;
+  fromText = true; syncControls(); renderRows(); update(); fromText = false;
+  var st = $('textStatus');
+  st.hidden = !textBad;
+  st.className = 'status' + (textBad ? ' warn' : '');
+  st.textContent = textBad ? '読み取れなかった行（反映していません）：' + p.bad.join('／') : '';
+}
+$('text').addEventListener('input', function(){
+  fitText();
+  clearTimeout(textTimer); textTimer = setTimeout(applyText, 350);
+});
+// 書き終えて欄を離れたら、読み取った結果の形に整える（読めない行が残っているときは、直せるようにそのまま残す）
+$('text').addEventListener('blur', function(){
+  if (textTimer) { clearTimeout(textTimer); applyText(); }
+  if (textBad || !last) return;
+  $('text').value = buildText(state.tasks, last.rows); fitText();
+});
+
 // ---- コピー ----
 function copy(text, what, selectEl){
   var st = $('copyStatus');
@@ -827,7 +924,7 @@ function copy(text, what, selectEl){
     document.body.appendChild(ta); ta.select(); var done=false; try { done = document.execCommand('copy'); } catch(e){}
     document.body.removeChild(ta);
     if (done) { ok(); return; }
-    if (selectEl) { var r=document.createRange(); r.selectNodeContents(selectEl); var s=window.getSelection(); s.removeAllRanges(); s.addRange(r); }
+    if (selectEl) { if (selectEl.select) selectEl.select(); else { var r=document.createRange(); r.selectNodeContents(selectEl); var s=window.getSelection(); s.removeAllRanges(); s.addRange(r); } }
     st.textContent = 'コピーできませんでした。テキストを選択したので、Cmd+C（Windowsは Ctrl+C）でコピーしてください。';
   }
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(ok, fallback); else fallback();
