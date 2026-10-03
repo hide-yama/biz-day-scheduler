@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>タイムスケジューラ</title>
+<link rel="icon" href="favicon.ico" sizes="any"><link rel="icon" href="favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
 /* layout: 営業日スケジューラと同じ1カラム — プラン・メンバー → 日付タブ → 予定表（黄色＝入力） → ガントチャート（ドラッグで編集） → 共有用テキスト（ここも編集できる） */
@@ -34,6 +35,8 @@ body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-body);
   padding-inline:16px;padding-block:calc(20px + env(safe-area-inset-top,0px)) calc(56px + env(safe-area-inset-bottom,0px))}
 .wrap{max-width:980px;margin-inline:auto;display:flex;flex-direction:column;gap:28px}
 h1{font-size:22px;line-height:1.3;margin:0;font-weight:700}
+h1{display:flex;align-items:center;gap:10px}
+.logo{width:30px;height:30px;flex:none}
 h2{font-size:15px;margin:0;font-weight:700}
 p{margin:0}
 .lede,.hint{color:var(--muted);font-size:13px;max-width:65ch}
@@ -209,7 +212,7 @@ body.drag-order,body.drag-order *{cursor:grabbing!important;user-select:none;-we
 <div class="wrap">
   <header>
     <nav class="tools" aria-label="ツール"><a href="index.html">営業日スケジューラ</a><a href="task.html">タスクスケジューラ（1日の仕事）</a><span aria-current="page">タイムスケジューラ</span></nav>
-    <h1>タイムスケジューラ</h1>
+    <h1><svg class="logo" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><rect width="32" height="32" rx="7" fill="var(--bar)"/><rect x="6" y="7.5" width="11" height="4.5" rx="2.25" fill="var(--surface)"/><rect x="11" y="13.75" width="13" height="4.5" rx="2.25" fill="var(--surface)"/><rect x="18" y="20" width="8" height="4.5" rx="2.25" fill="var(--btn)"/></svg>タイムスケジューラ</h1>
     <p class="lede">予定と所要時間を入れると、開始時刻から順に時間を割り振ります。旅行や出張のように何日かにわたる予定は、日ごとに分けて組めます。黄色のところが入力欄です。</p>
   </header>
 

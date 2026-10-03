@@ -1,5 +1,6 @@
 <!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
 <title>営業日スケジューラ</title>
+<link rel="icon" href="favicon.ico" sizes="any"><link rel="icon" href="favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
 /* layout: one column, top to bottom in working order — 基準日 → タスク表（黄色＝入力） → ガント → 共有用テキスト（ここも編集できる） */
@@ -31,6 +32,8 @@ header{display:flex;flex-direction:column;gap:6px}
 .tools a{color:var(--bar)}
 .tools [aria-current]{color:var(--muted)}
 h1{font-size:22px;line-height:1.3;margin:0;font-weight:700}
+h1{display:flex;align-items:center;gap:10px}
+.logo{width:30px;height:30px;flex:none}
 h2{font-size:15px;margin:0;font-weight:700}
 p{margin:0}
 .lede,.hint{color:var(--muted);font-size:13px;max-width:65ch}
@@ -159,7 +162,7 @@ textarea{width:100%;max-width:320px;min-height:96px;font-family:var(--font-num);
 <div class="wrap">
   <header>
     <nav class="tools" aria-label="ツール"><span aria-current="page">営業日スケジューラ</span><a href="task.html">タスクスケジューラ（1日の仕事）</a><a href="day.html">タイムスケジューラ（旅行・複数人）</a></nav>
-    <h1>営業日スケジューラ</h1>
+    <h1><svg class="logo" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><rect width="32" height="32" rx="7" fill="var(--bar)"/><rect x="6" y="7.5" width="11" height="4.5" rx="2.25" fill="var(--surface)"/><rect x="11" y="13.75" width="13" height="4.5" rx="2.25" fill="var(--surface)"/><rect x="18" y="20" width="8" height="4.5" rx="2.25" fill="var(--btn)"/></svg>営業日スケジューラ</h1>
     <p class="lede">タスクと日数を入れると、土日・祝日を除いて日付を割り振ります。黄色のところが入力欄で、それ以外は自動で決まります。</p>
   </header>
 
