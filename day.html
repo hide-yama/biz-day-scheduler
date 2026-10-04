@@ -281,9 +281,11 @@ body.drag-order,body.drag-order *{cursor:grabbing!important;user-select:none;-we
       <button type="button" class="btn" id="copyText">テキストをコピー</button>
       <button type="button" class="btn plain" id="copyDay" hidden>この日だけコピー</button>
       <button type="button" class="btn plain" id="copyTable">表としてコピー</button>
+      <button type="button" class="btn plain" id="copyPrompt">AI用プロンプトをコピー</button>
       <span class="status" id="copyStatus" role="status" aria-live="polite"></span>
     </div>
     <p class="hint">このテキストは直接書き換えられ、表とガントチャートに反映されます。「■ 10/10（土） 1日目」の行が日の区切りです。「8:00-8:15 集合」のように時刻を書いた行はその時刻の予定になり（前の予定とつながらない時刻は固定）、「昼食 1時間」のように所要時間だけ書いた行は前の予定に続きます。「[Aさん] 」をつけるとその人の予定になります。時刻も所要時間もない行は見出しです。「表としてコピー」は、スプレッドシートにそのまま貼れる形式（日付・開始・終了・予定・所要時間。メンバーがいるときは「だれ」も）です。</p>
+    <p class="hint">「AI用プロンプトをコピー」で、この書き方を説明したプロンプトをコピーできます。ChatGPT や Claude などに貼ると、AIが行き先や予定を聞き取って、この形式で日程を組んでくれます。AIが出したテキストをこの欄に貼り付けると、表とガントチャートに反映されます。別行動のメンバーは、先にこのページで登録しておいてください。</p>
   </section>
 
   <section>
@@ -433,6 +435,7 @@ function parsePlanText(text, plan, results){
   var bad = [], unknown = [], sections = [], sec = null;
   String(text||'').split('\n').forEach(function(raw){
     var line = half(raw).trim();
+    if (/^```/.test(line)) return;   // AIの返答からコードブロックの ``` ごと貼っても読めるように
     if (/^■/.test(line)) { sec = {head:line.replace(/^■\s*/, ''), lines:[]}; sections.push(sec); return; }
     if (!sec) { sec = {head:null, lines:[]}; sections.push(sec); }
     sec.lines.push(raw);
@@ -550,9 +553,63 @@ function packPlan(p){
   })};
 }
 
+// AIに渡すプロンプト。旅行・出張などの予定を聞き取って、共有用テキストの形式（parsePlanText で読める形）で日程を組んでもらう。
+// メンバーが登録されていれば、その名前を [名前] で使ってもらう。
+function buildAiPrompt(now, members){
+  var names = lanesOf(members).length ? members.map(function(m){ return String(m.name||'').trim(); }).filter(Boolean) : [];
+  return [
+    'あなたは、旅行や出張などの日程づくりを手伝うアシスタントです。',
+    '私の要望を聞き取って、「タイムスケジューラ」というツールに貼り付けられる形式で、時刻つきの日程を組んでください。ツールに貼ると、表とガントチャートになります。',
+    '',
+    '# 進め方',
+    '1. まず次のことを質問してください。一度にたくさん聞かず、2〜3問ずつ聞いてください。すでに分かっていることは聞き直さないでください。',
+    '   - 目的（旅行・出張など）と行き先',
+    '   - 日程（何日から何日まで）と、各日の出発・集合の時刻',
+    '   - 行きたい場所・やりたいこと、時刻が決まっている予定（電車・飛行機・予約・会議など）',
+    '   - 移動手段',
+    '   - 一緒に行く人と、別行動があるか',
+    '2. 聞き取りが終わったら、日程の案を下の「書き方」で出してください。移動時間や食事・休憩も入れて、無理のない日程にしてください。所要時間や移動時間は目安で構いません。',
+    '3. 私が修正をお願いしたら、毎回全体を書き直してください。',
+    '',
+    '# 書き方（必ず守ってください）',
+    '- 日程はコードブロック（```）の中にだけ書き、ブロックの中には説明・コメント・記号を入れないでください。説明はブロックの外に書いてください。',
+    '- 「■ 10/10（土） 1日目」の行が日の区切りです。日ごとに、この行から始めてください。日付は「月/日」を半角で書いてください。',
+    '- 1行に1予定です。上から時刻の早い順に並べてください。',
+    '- 「予定名 1時間」：前の予定が終わった時刻から始まる予定です。所要時間は「15分」「1時間」「2時間30分」のように書いてください。基本はこの書き方にしてください。',
+    '- 「8:00-8:15 予定名」：時刻が決まっている予定です（電車の発車、予約など）。時刻は24時間表記・半角で書いてください。',
+    '- 各日の最初の予定は必ず時刻つきで書いてください。その時刻がその日の開始時刻になります。',
+    '- 移動も1つの予定として書いてください（例：「新幹線で京都へ 2時間15分」）。',
+    '- 時刻も所要時間もない行は見出し（午前・午後などのまとまり）です。',
+    '- 予定名を数字で始めないでください。行の先頭に「-」「・」「1.」などをつけないでください。',
+    names.length
+      ? '- 別行動の予定は、予定名の前に [名前] をつけてください（時刻つきなら「13:00-15:00 [名前] 予定名」、所要時間だけなら「[名前] 予定名 1時間」）。名前は次のどれかをそのまま使ってください：' + names.join('、') + '。[名前] のない予定は全員の予定で、全員がそろってから始まります。'
+      : '- 別行動がある場合は、予定名の前に [名前] をつけてください（時刻つきなら「13:00-15:00 [名前] 予定名」、所要時間だけなら「[名前] 予定名 1時間」）。[名前] のない予定は全員の予定です。別行動を使ったときは、ツールで同じ名前のメンバーを先に登録するよう、ブロックの外で私に伝えてください。',
+    '',
+    '# 書き方の例',
+    '```',
+    '■ 10/10（土） 1日目',
+    '8:00-8:15 東京駅に集合',
+    '新幹線で京都へ 2時間15分',
+    '昼食 1時間',
+    '清水寺を観光 2時間',
+    '',
+    '■ 10/11（日） 2日目',
+    '9:00-9:30 ホテルをチェックアウト',
+    '嵐山へ移動 45分',
+    '嵐山を散策 3時間',
+    '17:00-19:15 新幹線で東京へ',
+    '```',
+    '',
+    '# 参考情報',
+    '- 今日は '+slash(now)+'（'+DOW[parts(now).w]+'）です。',
+    '',
+    'それでは、最初の質問からお願いします。'
+  ].join('\n');
+}
+
 // テスト用に計算部分だけ取り出せるようにしておく
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = {parsePlanText:parsePlanText, computeDay:computeDay, buildText:buildText, buildTsv:buildTsv, parseDur:parseDur, parseTime:parseTime,
+  module.exports = {parsePlanText:parsePlanText, computeDay:computeDay, buildText:buildText, buildTsv:buildTsv, buildAiPrompt:buildAiPrompt, parseDur:parseDur, parseTime:parseTime,
     computeAll:computeAll, fmt:fmt, fmtDur:fmtDur, durStr:durStr, normalizePlan:normalizePlan, packPlan:packPlan};
   return;
 }
@@ -1231,6 +1288,7 @@ function copy(text, okMsg, statusEl, selectEl){
 $('copyText').addEventListener('click', function(){ copy(buildText(plan(), results), 'テキストをコピーしました。', $('copyStatus'), $('text')); });
 $('copyDay').addEventListener('click', function(){ copy(buildText(plan(), results, plan().dayIdx), (plan().dayIdx+1)+'日目のテキストをコピーしました。', $('copyStatus'), $('text')); });
 $('copyTable').addEventListener('click', function(){ copy(buildTsv(plan(), results), '表をコピーしました。', $('copyStatus'), $('text')); });
+$('copyPrompt').addEventListener('click', function(){ copy(buildAiPrompt(today(), plan().members), 'AI用プロンプトをコピーしました。', $('copyStatus')); });
 $('share').addEventListener('click', function(){
   encodePlan(plan()).then(function(code){
     var url = location.href.split('#')[0] + '#p=' + code, box = $('shareUrl');

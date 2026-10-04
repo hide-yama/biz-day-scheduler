@@ -219,9 +219,11 @@ textarea{width:100%;max-width:320px;min-height:96px;font-family:var(--font-num);
     <div class="row-actions">
       <button type="button" class="btn" id="copyText">テキストをコピー</button>
       <button type="button" class="btn plain" id="copyTable">表としてコピー</button>
+      <button type="button" class="btn plain" id="copyPrompt">AI用プロンプトをコピー</button>
       <span class="status" id="copyStatus" role="status" aria-live="polite"></span>
     </div>
     <p class="hint">このテキストは直接書き換えられ、表とガントチャートに反映されます。「10/5-10/6: 要件整理」のように日付を書いた行はその期間のタスクになり（日数は営業日で数え直します。前のタスクとつながらない日付は日付固定）、「デザイン制作 3日」のように日数だけ書いた行は上に続きます。日付も日数もない行は見出しです。「表としてコピー」は、スプレッドシートにそのまま貼れる形式（タスク名・日数・開始日・終了日）です。</p>
+    <p class="hint">「AI用プロンプトをコピー」で、この書き方を説明したプロンプトをコピーできます。ChatGPT や Claude などに貼ると、AIが要望を聞き取ってスケジュールをこの形式で書いてくれます。AIが出したテキストをこの欄に貼り付けると、表とガントチャートに反映されます（「開始日から計算」で貼り付けてください）。</p>
   </section>
 
   <details id="holidayBox">
@@ -411,7 +413,7 @@ function parseText(text, st, res){
   function take(name){ var l = pool[name]; return l && l.length ? l.shift() : null; }
   String(text||'').split('\n').forEach(function(raw){
     var line = String(raw).replace(/[０-９／：]/g, function(c){ return String.fromCharCode(c.charCodeAt(0)-0xFEE0); }).trim(), m;
-    if (!line) return;
+    if (!line || /^```/.test(line)) return;   // AIの返答からコードブロックの ``` ごと貼っても読めるように
     if ((m = /^(\d{1,2})\/(\d{1,2})(?:\s*[-~〜～–—]\s*(\d{1,2})\/(\d{1,2}))?(?:\s*:\s*|\s+)(\S.*)$/.exec(line)) && !/^[-~〜～–—\d\/]/.test(m[5]) && +m[1] >= 1 && +m[1] <= 12 && (!m[3] || (+m[3] >= 1 && +m[3] <= 12))) {
       var s = near(+m[1], +m[2]); ref = s;
       var e = m[3] ? near(+m[3], +m[4]) : s; if (e < s) { bad.push(String(raw).trim()); return; }
@@ -442,9 +444,65 @@ function parseText(text, st, res){
   return {tasks:tasks, date:date, bad:bad};
 }
 
+// AIに渡すプロンプト。要望を聞き取って、共有用テキストの形式（parseText で読める形）でスケジュールを書いてもらう。
+// 今日の日付と、この先1年の平日の休み（祝日・追加した休業日）も添えて、営業日を数え間違えにくくする。
+function buildAiPrompt(now, h){
+  var offs = [];
+  for (var n = now; n <= now + 365; n++) { var w = parts(n).w; if (h[n] && w !== 0 && w !== 6) offs.push(slash(n)+'（'+DOW[w]+'） '+h[n]); }
+  return [
+    'あなたは、仕事の納品スケジュールづくりを手伝うアシスタントです。',
+    '私の要望を聞き取って、「営業日スケジューラ」というツールに貼り付けられる形式でスケジュールを書いてください。ツールに貼ると、表とガントチャートになります。',
+    '',
+    '# 進め方',
+    '1. まず次のことを質問してください。一度にたくさん聞かず、2〜3問ずつ聞いてください。すでに分かっていることは聞き直さないでください。',
+    '   - 何をつくる・納品する仕事か',
+    '   - 開始日、または納期',
+    '   - 必要な工程・タスクと、それぞれのおおよその日数（私が分からないときは、一般的な目安を提案してください）',
+    '   - 並行して進められる作業',
+    '   - 日付が決まっている予定（打ち合わせ、先方の確認など）や、先方の確認・修正にかかる日数',
+    '2. 聞き取りが終わったら、スケジュール案を下の「書き方」で出してください。納期だけが決まっているときは、納期に間に合うように開始日を逆算してください。',
+    '3. 私が修正をお願いしたら、毎回スケジュール全体を書き直してください。',
+    '',
+    '# 書き方（必ず守ってください）',
+    '- スケジュールはコードブロック（```）の中にだけ書き、ブロックの中には説明・コメント・記号を入れないでください。説明はブロックの外に書いてください。',
+    '- 1行に1タスクです。',
+    '- 「タスク名 3日」：上のタスクが終わった次の営業日から、3営業日かかるタスクです。基本はこの書き方にしてください。',
+    '- 「11/9-11/10: タスク名」：その期間に行うタスクです。1日だけなら「11/9: タスク名」です。日付は「月/日」を半角で書き、年や曜日はつけないでください。',
+    '- 最初のタスクは必ず日付つきで書いてください。その日が全体の開始日になります。',
+    '- 並行する作業は、前のタスクと同じ開始日で、日付つきで書いてください。',
+    '- 日付が決まっている予定も、日付つきで書いてください。',
+    '- 日付も日数もない行は見出し（工程のまとまり）です。見出しの前には空行を1行入れてください。',
+    '- 日数は営業日（土日・祝日・休業日を除いた日）で数えてください。日付を書くときも、土日・祝日・休業日を避けてください。',
+    '- タスク名を数字で始めないでください。行の先頭に「-」「・」「1.」などをつけないでください。',
+    '',
+    '# 書き方の例',
+    '```',
+    '11/9-11/10: 要件整理',
+    '',
+    'デザイン',
+    '11/11-11/17: デザイン制作',
+    '11/11-11/13: 原稿作成',
+    '先方確認 2日',
+    'デザイン修正 2日',
+    '',
+    '実装',
+    'コーディング 5日',
+    'テスト 2日',
+    '納品 1日',
+    '```',
+    'この例では「原稿作成」は「デザイン制作」と並行し、「先方確認」は両方が終わってから始まります。',
+    '',
+    '# 参考情報',
+    '- 今日は '+slash(now)+'（'+DOW[parts(now).w]+'）です。',
+    '- 平日のうち休みになる日（この先1年）：' + (offs.length ? '\n' + offs.map(function(x){ return '  - '+x; }).join('\n') : 'なし（登録されている祝日データの範囲外です。祝日は考慮してください）'),
+    '',
+    'それでは、最初の質問からお願いします。'
+  ].join('\n');
+}
+
 // テスト用に計算部分だけ取り出せるようにしておく
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = {compute:compute, parseText:parseText, buildText:buildText, buildTsv:buildTsv, parseDate:parseDate, iso:iso, holidaySet:holidaySet, shift:shift};
+  module.exports = {compute:compute, parseText:parseText, buildText:buildText, buildTsv:buildTsv, buildAiPrompt:buildAiPrompt, parseDate:parseDate, iso:iso, holidaySet:holidaySet, shift:shift};
   return;
 }
 
@@ -934,6 +992,7 @@ function copy(text, what, selectEl){
 }
 $('copyText').addEventListener('click', function(){ if (last) copy(buildText(state.tasks,last.rows), 'テキスト', $('text')); });
 $('copyTable').addEventListener('click', function(){ if (last) copy(buildTsv(state.tasks,last.rows), '表', $('text')); });
+$('copyPrompt').addEventListener('click', function(){ copy(buildAiPrompt(today(), holidaySet(state.extra)), 'AI用プロンプト'); });
 
 syncControls(); renderRows(); update();
 })();

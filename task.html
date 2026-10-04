@@ -247,9 +247,11 @@ body.drag-size,body.drag-size *{cursor:ew-resize!important}
     <div class="row-actions">
       <button type="button" class="btn" id="copyText">テキストをコピー</button>
       <button type="button" class="btn plain" id="copyTable">表としてコピー</button>
+      <button type="button" class="btn plain" id="copyPrompt">AI用プロンプトをコピー</button>
       <span class="status" id="copyStatus" role="status" aria-live="polite"></span>
     </div>
     <p class="hint">このテキストは直接書き換えられ、表とガントチャートに反映されます。「9:00-9:30 メール確認」のように時刻を書いた行はその時刻のタスクになり（前のタスクとつながらない時刻は固定）、「資料作成 1時間」のように所要時間だけ書いた行は前のタスクに続きます。行末に ✓ をつけると完了、時刻も所要時間もない行は見出しになります。「表としてコピー」は、スプレッドシートにそのまま貼れる形式（開始・終了・タスク・所要時間・完了）です。</p>
+    <p class="hint">「AI用プロンプトをコピー」で、この書き方を説明したプロンプトをコピーできます。ChatGPT や Claude などに貼ると、AIがその日の予定ややることを聞き取って、この形式でタスクを組んでくれます。AIが出したテキストをこの欄に貼り付けると、表とガントチャートに反映されます。</p>
   </section>
 </div>
 <div id="tip" hidden></div>
@@ -369,7 +371,7 @@ function parseText(text, prev){
   function take(name){ var l = pool[name]; return l && l.length ? l.shift() : null; }
   String(text||'').split('\n').forEach(function(raw){
     var line = half(raw).trim(), done = false, m;
-    if (!line || /^■/.test(line)) return;
+    if (!line || /^■/.test(line) || /^```/.test(line)) return;   // AIの返答からコードブロックの ``` ごと貼っても読めるように
     if (/^[✓✔☑]/.test(line)) { done = true; line = line.replace(/^[✓✔☑]\s*/, ''); }
     if (/[✓✔☑]$/.test(line)) { done = true; line = line.replace(/\s*[✓✔☑]$/, ''); }
     if ((m = /^(翌)?(\d{1,2}):(\d{2})\s*[-~〜～–—]\s*(翌)?(\d{1,2}):(\d{2})\s*(.*)$/.exec(line))) {
@@ -416,9 +418,58 @@ function normalizeDay(d){
   })};
 }
 
+// AIに渡すプロンプト。その日のやることを聞き取って、共有用テキストの形式（parseText で読める形）でタスクを組んでもらう。
+function buildAiPrompt(now, date){
+  var d = parseDate(date);
+  return [
+    'あなたは、1日の仕事のタスクを組むのを手伝うアシスタントです。',
+    '私の予定ややることを聞き取って、「タスクスケジューラ」というツールに貼り付けられる形式で、その日のタスクを時刻つきで組んでください。ツールに貼ると、表とガントチャートになります。',
+    '',
+    '# 進め方',
+    '1. まず次のことを質問してください。一度にたくさん聞かず、2〜3問ずつ聞いてください。すでに分かっていることは聞き直さないでください。',
+    '   - 何時から何時まで働くか',
+    '   - 時刻が決まっている予定（会議・打ち合わせ・移動など）',
+    '   - その日にやりたいタスクと、それぞれのおおよその所要時間（私が分からないときは、目安を提案してください）',
+    '   - 優先度や締め切り、集中したい時間帯、昼休みなどの休憩',
+    '2. 聞き取りが終わったら、タスクの案を下の「書き方」で出してください。時刻の決まった予定の間に、ほかのタスクを無理なく入れてください。終業時刻に収まらないときは、そのことを伝えてください。',
+    '3. 私が修正をお願いしたら、毎回全体を書き直してください。',
+    '',
+    '# 書き方（必ず守ってください）',
+    '- タスクはコードブロック（```）の中にだけ書き、ブロックの中には説明・コメント・記号を入れないでください。説明はブロックの外に書いてください。',
+    '- 1行に1タスクです。上から時刻の早い順に並べてください。',
+    '- 「タスク名 1時間」：前のタスクが終わった時刻から始まるタスクです。所要時間は「30分」「1時間」「1時間30分」のように書いてください。基本はこの書き方にしてください。',
+    '- 「13:00-14:00 タスク名」：時刻が決まっているタスクです（会議など）。時刻は24時間表記・半角で書いてください。',
+    '- 最初のタスクは必ず時刻つきで書いてください。その時刻がその日の開始時刻になります。',
+    '- 時刻の決まった予定の前にすき間ができるときは、そのまま空けておいて構いません。',
+    '- 時刻も所要時間もない行は見出し（午前・午後などのまとまり）です。見出しの前には空行を1行入れてください。',
+    '- 昼休みなどの休憩もタスクとして書いてください。',
+    '- タスク名を数字で始めないでください。行の先頭に「-」「・」「1.」などをつけないでください。',
+    '',
+    '# 書き方の例',
+    '```',
+    '午前',
+    '9:00-9:30 メール確認',
+    '企画書の作成 1時間30分',
+    '11:00-12:00 定例会議',
+    '',
+    '午後',
+    '昼休み 1時間',
+    '資料の修正 2時間',
+    '15:00-15:30 打ち合わせ',
+    '見積もり作成 1時間',
+    '日報 15分',
+    '```',
+    '',
+    '# 参考情報',
+    '- 今日は '+mdw(now)+'です。' + (d != null && d !== now ? '組むのは '+mdw(d)+'のタスクです。' : ''),
+    '',
+    'それでは、最初の質問からお願いします。'
+  ].join('\n');
+}
+
 // テスト用に計算部分だけ取り出せるようにしておく
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = {computeDay:computeDay, progress:progress, parseText:parseText, buildText:buildText, buildTsv:buildTsv, normalizeDay:normalizeDay, parseDur:parseDur, fmt:fmt};
+  module.exports = {computeDay:computeDay, progress:progress, parseText:parseText, buildText:buildText, buildTsv:buildTsv, buildAiPrompt:buildAiPrompt, normalizeDay:normalizeDay, parseDur:parseDur, fmt:fmt};
   return;
 }
 
@@ -900,6 +951,7 @@ function copy(text, okMsg, statusEl, selectEl){
 }
 $('copyText').addEventListener('click', function(){ copy(buildText(store.date, curDay(), last), 'テキストをコピーしました。', $('copyStatus'), $('text')); });
 $('copyTable').addEventListener('click', function(){ copy(buildTsv(curDay(), last), '表をコピーしました。', $('copyStatus'), $('text')); });
+$('copyPrompt').addEventListener('click', function(){ copy(buildAiPrompt(today(), store.date), 'AI用プロンプトをコピーしました。', $('copyStatus')); });
 
 // 「いま」の線を1分ごとに動かす（ドラッグ中は触らない）
 setInterval(function(){ if (!drag && !order && store.date === iso(today())) renderTimeline(last); }, 60000);
