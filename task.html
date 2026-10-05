@@ -135,6 +135,9 @@ td.ops{text-align:right}
 .bar:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
 .bar-label{position:absolute;top:0;height:var(--rowh);line-height:var(--rowh);z-index:1;padding-left:6px;white-space:nowrap;
   font-family:var(--font-num);font-size:11px;color:var(--muted);pointer-events:none}
+.bar-label.flip{padding-left:0;padding-right:6px}
+.bar-label .nm{font-family:var(--font-body);font-size:12px;color:var(--fg);margin-left:6px}
+.is-done .bar-label .nm{color:var(--muted);text-decoration:line-through}
 .bar-label .flag{color:var(--warn);font-weight:700;font-family:var(--font-body);margin-left:4px}
 .bar-label .ok{color:var(--done);font-weight:700;font-family:var(--font-body);margin-left:4px}
 #tip{position:fixed;z-index:10;background:var(--fg);color:var(--bg);padding:6px 10px;border-radius:4px;font-size:12px;line-height:1.5;pointer-events:none;max-width:260px}
@@ -638,7 +641,7 @@ function renderTimeline(res){
       var left = px(r.s-from) + 1, width = Math.max(6, px(r.e-r.s) - 2);
       track = '<div class="bar'+(r.pin?' pin':'')+(done?' done':'')+(r.over?' late':'')+(drag && drag.id===t.id?' dragging':'')+'" tabindex="0" data-i="'+idx+'" style="left:'+left+'px;width:'+width+'px">'+
               '<i class="h h-l" data-h="head"></i><i class="h h-r" data-h="tail"></i></div>'+
-              '<div class="bar-label" style="left:'+(left+width)+'px">'+esc(fmt(r.s))+'–'+esc(fmt(r.e))+(done?'<span class="ok">✓</span>':'')+(r.over?'<span class="flag">重なり</span>':'')+'</div>';
+              '<div class="bar-label" style="left:'+(left+width)+'px">'+esc(fmt(r.s))+'–'+esc(fmt(r.e))+(name?'<span class="nm">'+esc(name)+'</span>':'')+(done?'<span class="ok">✓</span>':'')+(r.over?'<span class="flag">重なり</span>':'')+'</div>';
     }
     return '<div class="g-row'+(r.s==null?' is-head':'')+(done?' is-done':'')+'" data-i="'+idx+'"><div class="g-label" title="'+esc(name)+'"><span class="g-grip"><i class="dots"></i></span>'+esc(name||'（名前なし）')+'</div>'+
            '<div class="g-track" style="width:'+W+'px">'+track+'</div></div>';
@@ -646,6 +649,11 @@ function renderTimeline(res){
   el.innerHTML = '<div class="gantt" style="width:calc(var(--label) + '+W+'px)">'+
     '<div class="g-row g-head"><div class="g-label">'+(dd!=null?esc(mdw(dd)):'')+'</div><div class="g-track" style="width:'+W+'px">'+hours+'</div></div>'+
     '<div class="g-body">'+grid+rows+'</div></div>';
+  // 時刻とタスク名がグラフの右端からはみ出す行は、バーの左側に寄せる
+  el.querySelectorAll('.bar-label').forEach(function(lb){
+    var bar = lb.previousElementSibling;
+    if (lb.offsetLeft + lb.offsetWidth > W && bar.offsetLeft > lb.offsetWidth) { lb.classList.add('flip'); lb.style.left = ''; lb.style.right = (W - bar.offsetLeft) + 'px'; }
+  });
   // 表示範囲の左端が変わったら、そのぶんスクロール位置をずらして見た目を保つ
   if (tFrom != null && tFrom !== from) el.scrollLeft += px(tFrom - from);
   tFrom = from; tTo = to;
