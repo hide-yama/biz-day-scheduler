@@ -221,7 +221,7 @@ body.drag-size,body.drag-size *{cursor:ew-resize!important}
       <span class="spacer"></span>
       <button type="button" class="btn plain" id="clearDay">この日のタスクをすべて消す</button>
     </div>
-    <p class="hint">所要時間は「30」（分）、「1:30」、「1時間半」のように書けます。タスクは上から順に、前のタスクが終わった時刻から始まります。会議など時刻が決まっているものは、その行の開始時刻を書き換えると固定されます（黄色）。× を押すと前に続く形に戻ります。所要時間を空欄にした行は見出しになります。タスク名の欄で Enter を押すと、すぐ下に次の行が増えます。</p>
+    <p class="hint">所要時間は「30」（分）、「1:30」、「1時間半」のように書けます。タスクは上から順に、前のタスクが終わった時刻から始まります。会議など時刻が決まっているものは、その行の開始時刻を書き換えると固定されます（黄色）。× を押すと前に続く形に戻ります。所要時間を空欄にした行は見出しになります。タスク名の欄で Enter を押すと、すぐ下に次の行が増えます。タスク・所要時間の欄では ↑ ↓ で上下の行に、文字の端で ← → を押すと隣の欄に移れます。空のタスク欄で Backspace を押すと、その行が消えます。</p>
   </section>
 
   <section>
@@ -887,11 +887,35 @@ function addRow(name, dur, after){
   renderRows(); update();
   var inp = $('n-'+t.id); if (inp) { inp.focus(); inp.select(); }
 }
+// タスク・所要時間の欄では ↑ ↓ で上下の行の同じ欄へ、← → で隣の欄へ移り、空のタスク欄で Backspace を押すとその行を消す。
+// 日本語入力の変換中（候補選びの ↑ ↓ など）は何もしない。
+function focusField(t, f, at){
+  var inp = t && $((f === 'dur' ? 'd-' : 'n-') + t.id); if (!inp) return;
+  inp.focus(); var n = at == null ? inp.value.length : at; inp.setSelectionRange(n, n);
+}
 $('rows').addEventListener('keydown', function(e){
   var f = e.target.getAttribute('data-f');
-  if ((f !== 'name' && f !== 'dur') || !isPlainEnter(e)) return;
-  e.preventDefault();
-  addRow('', '30', itemOf(e.target));
+  if (f !== 'name' && f !== 'dur') return;
+  if (isPlainEnter(e)) { e.preventDefault(); addRow('', '30', itemOf(e.target)); return; }
+  if (e.isComposing || e.keyCode === 229 || e.shiftKey || e.altKey || e.metaKey || e.ctrlKey) return;
+  var list = items(), t = itemOf(e.target), i = list.indexOf(t);
+  if (i < 0) return;
+  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    var to = list[i + (e.key === 'ArrowUp' ? -1 : 1)]; if (!to) return;
+    e.preventDefault(); focusField(to, f); return;
+  }
+  // ← → は文字の中を動くのが先。カーソルが端にあるときだけ隣の欄へ移る。
+  var el = e.target, s = el.selectionStart, n = el.value.length;
+  if (s === el.selectionEnd) {
+    if (e.key === 'ArrowRight' && f === 'name' && s === n) { e.preventDefault(); focusField(t, 'dur', 0); return; }
+    if (e.key === 'ArrowLeft' && f === 'dur' && s === 0) { e.preventDefault(); focusField(t, 'name'); return; }
+  }
+  if (e.key === 'Backspace' && f === 'name' && e.target.value === '' && list.length > 1) {
+    e.preventDefault();
+    list.splice(i, 1);
+    renderRows(); update();
+    focusField(list[i > 0 ? i-1 : 0], 'name');
+  }
 });
 $('addItem').addEventListener('click', function(){ addRow('', '30'); });
 $('addHead').addEventListener('click', function(){ addRow('【見出し】', ''); });
