@@ -26,7 +26,7 @@
 
 *,*::before,*::after{box-sizing:border-box}
 body{background:var(--bg);color:var(--fg);font-family:var(--font-body);font-size:14px;line-height:1.7;padding-inline:16px;padding-block:20px 56px}
-.wrap{max-width:980px;margin-inline:auto;display:flex;flex-direction:column;gap:28px}
+.wrap{max-width:1400px;margin-inline:auto;display:flex;flex-direction:column;gap:28px}
 header{display:flex;flex-direction:column;gap:6px}
 .tools{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12.5px}
 .tools a{color:var(--bar)}
@@ -36,7 +36,7 @@ h1{display:flex;align-items:center;gap:10px}
 .logo{width:30px;height:30px;flex:none}
 h2{font-size:15px;margin:0;font-weight:700}
 p{margin:0}
-.lede,.hint{color:var(--muted);font-size:13px;max-width:65ch}
+.lede,.hint{color:var(--muted);font-size:13px}
 section{display:flex;flex-direction:column;gap:10px;min-width:0}
 .num{font-family:var(--font-num);font-variant-numeric:tabular-nums}
 
@@ -91,6 +91,9 @@ td.ops{text-align:right}
 .k-off{width:14px;height:14px;background:var(--shade);border:1px solid var(--line)}
 .k-today{width:0;height:14px;border-left:2px dashed var(--today)}
 .g-scroll{overflow-x:auto;border:1px solid var(--line);background:var(--surface)}
+/* 時間軸が枠より短いときも、行の線や見出しの帯は右端まで伸ばす */
+.g-scroll .gantt{min-width:100%}
+.g-scroll .g-track{flex-grow:1}
 .gantt{position:relative;font-size:12px;user-select:none;-webkit-user-select:none}
 .g-row,.g-headrow{display:flex}
 .g-label{position:sticky;left:0;z-index:3;flex:0 0 var(--label);width:var(--label);background:var(--surface);border-right:1px solid var(--line);
@@ -192,6 +195,7 @@ textarea{width:100%;max-width:320px;min-height:96px;font-family:var(--font-num);
       <button type="button" class="btn" id="addTask">＋ タスクを追加</button>
       <button type="button" class="btn plain" id="addHead">＋ 見出しを追加</button>
       <span class="spacer"></span>
+      <button type="button" class="btn plain" id="clearTasks">タスクをすべて消す</button>
       <button type="button" class="btn plain" id="reset">サンプルに戻す</button>
     </div>
     <p class="hint" id="hint"></p>
@@ -596,7 +600,7 @@ function update(){
   $('hint').textContent = 'タスクを重ねたいときは「開始タイミング」を変えます。「上と同時」は上のタスクと同じ日に始まり、同時に進めたタスクが全部終わってから次へ進みます。' +
     (back ? '「終了日を固定」はそのタスクを決めた日までに終え、それより上のタスクは固定日に間に合うように逆算します。'
           : '「開始日を固定」はそのタスクを決めた日に始め、続くタスクはその後ろに並びます。') +
-    '日数を空欄にした行は見出しになります。タスク名の欄で Enter を押すと、すぐ下に次の行が増えます。タスク名・日数の欄では ↑ ↓ で上下の行に、文字の端で ← → を押すと隣の欄に移れます。空のタスク名の欄で Backspace を押すと、その行が消えます。左端のつまみを上下にドラッグすると、順番を入れ替えられます。';
+    '日数を空欄にした行は見出しになります。タスク名の欄で Enter を押すと、すぐ下に次の行が増えます。タスク名・日数の欄では ↑ ↓ で上下の行に、文字の端で ← → を押すと隣の欄に移れます。空のタスク名の欄で Backspace を押すと、その行が消えます。option（Windows は Alt）＋ ↑ ↓ で、その行ごと上下に入れ替えられます。左端のつまみを上下にドラッグすると、順番を入れ替えられます。';
   $('lgPin').hidden = back; $('lgPinEnd').hidden = !back; $('lgDeadline').hidden = !back;
   renderGantt(res);
   // 表・ガント・基準日から変えたときは、読めなかった行の警告を消してテキストを作り直す
@@ -617,6 +621,8 @@ function renderGantt(res){
   else if (gFrom != null && res.minS - gFrom >= 2 && res.minS - gFrom <= 14) from = gFrom;
   else from = res.minS - 3;
   var to = Math.max(Math.max(res.maxE, res.deadline||0) + 5, from + 20);
+  // 枠が広いときは、右側が空かないように見えている幅いっぱいまで日付を伸ばす
+  to = Math.max(to, from + Math.floor((el.clientWidth - labelW() - 2) / W) - 1);
   if (drag) to = Math.max(to, drag.to);
   var nDays = to - from + 1;
   var months = '', days = '', shades = '', i, n, p;
@@ -661,6 +667,10 @@ function renderGantt(res){
   if (gFrom != null && gFrom !== from) el.scrollLeft += (gFrom - from) * W;
   gFrom = from; gTo = to;
 }
+
+// 画面の幅が変わったら、広がった分まで時間軸を伸ばして描き直す
+var resizeTimer;
+window.addEventListener('resize', function(){ clearTimeout(resizeTimer); resizeTimer = setTimeout(function(){ if (last && !drag) renderGantt(last); }, 150); });
 
 // ツールチップ
 var tip = $('tip');
@@ -913,8 +923,23 @@ function focusField(t, f, at){
   var inp = t && $((f === 'days' ? 'd-' : 'n-') + t.id); if (!inp) return;
   inp.focus(); var n = at == null ? inp.value.length : at; inp.setSelectionRange(n, n);
 }
+// 表のどの欄でも option（Windows は Alt）＋ ↑ ↓ で、その行ごと上下に入れ替える（VS Code の行の移動と同じ）。
+// カーソルは動かした行の同じ欄についていく。
+function moveRowByKey(e){
+  var list = state.tasks, t = taskOf(e.target), i = list.indexOf(t), j = i + (e.key === 'ArrowUp' ? -1 : 1);
+  if (i < 0 || j < 0 || j >= list.length) return;
+  var id = e.target.id, s = e.target.selectionStart, en = e.target.selectionEnd;
+  list.splice(i, 1); list.splice(j, 0, t);
+  renderRows(); update();
+  var el = $(id); if (!el) return;
+  el.focus();
+  try { if (s != null) el.setSelectionRange(s, en); } catch (_) {}
+}
 $('rows').addEventListener('keydown', function(e){
   var f = e.target.getAttribute('data-f');
+  if (f && e.altKey && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.isComposing && e.keyCode !== 229 && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+    e.preventDefault(); moveRowByKey(e); return;
+  }
   if (f !== 'name' && f !== 'days') return;
   if (e.isComposing || e.keyCode === 229 || e.shiftKey || e.altKey || e.metaKey || e.ctrlKey) return;
   if (e.key === 'Enter') { e.preventDefault(); addRow('', '1', taskOf(e.target)); return; }
@@ -939,6 +964,22 @@ $('rows').addEventListener('keydown', function(e){
 });
 $('addTask').addEventListener('click', function(){ addRow('', '1'); });
 $('addHead').addEventListener('click', function(){ addRow('【見出し】', ''); });
+
+// タスクを空の1行だけにして、最初から組み直せるようにする（基準日・計算の向き・休業日はそのまま）
+var clearArmed = false, clearTimer = null;
+$('clearTasks').addEventListener('click', function(){
+  var b = $('clearTasks');
+  if (!clearArmed) {
+    clearArmed = true; b.textContent = 'すべて消す（もう一度押す）';
+    clearTimer = setTimeout(function(){ clearArmed=false; b.textContent='タスクをすべて消す'; }, 4000);
+    return;
+  }
+  clearTimeout(clearTimer); clearArmed = false; b.textContent = 'タスクをすべて消す';
+  state.seq = (state.seq||state.tasks.length)+1;
+  state.tasks = [{id:state.seq, name:'', days:'1', start:'after', fixed:''}];
+  renderRows(); update();
+  var inp = $('n-'+state.seq); if (inp) inp.focus();
+});
 
 var resetArmed = false, resetTimer = null;
 $('reset').addEventListener('click', function(){

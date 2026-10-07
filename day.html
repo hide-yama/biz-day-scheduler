@@ -33,13 +33,13 @@
 [hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-body);font-size:14px;line-height:1.7;
   padding-inline:16px;padding-block:calc(20px + env(safe-area-inset-top,0px)) calc(56px + env(safe-area-inset-bottom,0px))}
-.wrap{max-width:980px;margin-inline:auto;display:flex;flex-direction:column;gap:28px}
+.wrap{max-width:1400px;margin-inline:auto;display:flex;flex-direction:column;gap:28px}
 h1{font-size:22px;line-height:1.3;margin:0;font-weight:700}
 h1{display:flex;align-items:center;gap:10px}
 .logo{width:30px;height:30px;flex:none}
 h2{font-size:15px;margin:0;font-weight:700}
 p{margin:0}
-.lede,.hint{color:var(--muted);font-size:13px;max-width:65ch}
+.lede,.hint{color:var(--muted);font-size:13px}
 section{display:flex;flex-direction:column;gap:10px;min-width:0}
 .num{font-family:var(--font-num);font-variant-numeric:tabular-nums}
 header{display:flex;flex-direction:column;gap:6px}
@@ -131,6 +131,9 @@ td.who select{font-size:13px;max-width:8.5em}
 .k-now{width:0;height:14px;border-left:2px dashed var(--today)}
 .k-mid{width:14px;height:14px;background:var(--shade);border:1px solid var(--line)}
 .g-scroll{overflow-x:auto;border:1px solid var(--line);background:var(--surface)}
+/* 時間軸が枠より短いときも、行の線や見出しの帯は右端まで伸ばす */
+.g-scroll .gantt{min-width:100%}
+.g-scroll .g-track{flex-grow:1}
 .gantt{position:relative;font-size:12px;user-select:none;-webkit-user-select:none}
 .g-row{display:flex}
 .g-label{position:sticky;left:0;z-index:3;flex:0 0 var(--label);width:var(--label);background:var(--surface);border-right:1px solid var(--line);
@@ -260,8 +263,10 @@ body.drag-order,body.drag-order *{cursor:grabbing!important;user-select:none;-we
       <button type="button" class="btn" id="addItem">＋ 予定を追加</button>
       <button type="button" class="btn plain" id="addHead">＋ 見出しを追加</button>
       <span class="status" id="rowStatus" role="status" aria-live="polite"></span>
+      <span class="spacer"></span>
+      <button type="button" class="btn plain" id="clearItems">この日の予定をすべて消す</button>
     </div>
-    <p class="hint">所要時間は「30」（分）、「1:30」、「1時間半」のように書けます。予定は上から順に、前の予定が終わった時刻から始まります。電車の発車時刻など決まった時刻があるときは、その行の開始時刻を書き換えると固定されます（黄色）。× を押すと前に続く形に戻ります。所要時間を空欄にした行は見出しになります。予定名の欄で Enter を押すと、すぐ下に次の行が増えます。予定・所要時間の欄では ↑ ↓ で上下の行に、文字の端で ← → を押すと隣の欄に移れます。空の予定欄で Backspace を押すと、その行が消えます。<span id="whoHint" hidden>「だれ」を選んだ予定は、その人の前の予定に続きます。全員の予定は、全員がそろってから始まります。</span></p>
+    <p class="hint">所要時間は「30」（分）、「1:30」、「1時間半」のように書けます。予定は上から順に、前の予定が終わった時刻から始まります。電車の発車時刻など決まった時刻があるときは、その行の開始時刻を書き換えると固定されます（黄色）。× を押すと前に続く形に戻ります。所要時間を空欄にした行は見出しになります。予定名の欄で Enter を押すと、すぐ下に次の行が増えます。予定・所要時間の欄では ↑ ↓ で上下の行に、文字の端で ← → を押すと隣の欄に移れます。空の予定欄で Backspace を押すと、その行が消えます。option（Windows は Alt）＋ ↑ ↓ で、その行ごと上下に入れ替えられます。<span id="whoHint" hidden>「だれ」を選んだ予定は、その人の前の予定に続きます。全員の予定は、全員がそろってから始まります。</span></p>
   </section>
 
   <section>
@@ -854,6 +859,8 @@ function renderTimeline(res){
   else if (tFrom != null && res.minS - tFrom >= 15 && res.minS - tFrom <= 180) from = tFrom;
   else from = Math.max(0, Math.floor((res.minS - 30)/60)*60);
   to = Math.max(Math.ceil((res.maxE + 30)/60)*60, from + 6*60);
+  // 枠が広いときは、右側が空かないように見えている幅いっぱいまで時間軸を伸ばす
+  to = Math.max(to, from + Math.floor((el.clientWidth - labelW() - 2) / px(60)) * 60);
   if (drag) to = Math.max(to, drag.to);
   var W = px(to - from), hours = '', grid = '';
   for (m=from; m<to; m+=60) {
@@ -892,6 +899,10 @@ function renderTimeline(res){
   if (tFrom != null && tFrom !== from) el.scrollLeft += px(tFrom - from);
   tFrom = from; tTo = to;
 }
+
+// 画面の幅が変わったら、広がった分まで時間軸を伸ばして描き直す
+var resizeTimer;
+window.addEventListener('resize', function(){ clearTimeout(resizeTimer); resizeTimer = setTimeout(function(){ if (last && !drag) renderTimeline(last); }, 150); });
 
 // ツールチップ
 var tip = $('tip');
@@ -1183,8 +1194,23 @@ function focusField(t, f, at){
   var inp = t && $((f === 'dur' ? 'd-' : 'n-') + t.id); if (!inp) return;
   inp.focus(); var n = at == null ? inp.value.length : at; inp.setSelectionRange(n, n);
 }
+// 表のどの欄でも option（Windows は Alt）＋ ↑ ↓ で、その行ごと上下に入れ替える（VS Code の行の移動と同じ）。
+// カーソルは動かした行の同じ欄についていく。
+function moveRowByKey(e){
+  var list = items(), t = itemOf(e.target), i = list.indexOf(t), j = i + (e.key === 'ArrowUp' ? -1 : 1);
+  if (i < 0 || j < 0 || j >= list.length) return;
+  var id = e.target.id, s = e.target.selectionStart, en = e.target.selectionEnd;
+  list.splice(i, 1); list.splice(j, 0, t);
+  renderRows(); update();
+  var el = $(id); if (!el) return;
+  el.focus();
+  try { if (s != null) el.setSelectionRange(s, en); } catch (_) {}
+}
 $('rows').addEventListener('keydown', function(e){
   var f = e.target.getAttribute('data-f');
+  if (f && e.altKey && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.isComposing && e.keyCode !== 229 && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+    e.preventDefault(); moveRowByKey(e); return;
+  }
   if (f !== 'name' && f !== 'dur') return;
   if (e.isComposing || e.keyCode === 229 || e.shiftKey || e.altKey || e.metaKey || e.ctrlKey) return;
   if (e.key === 'Enter') { e.preventDefault(); addRow('', '30', itemOf(e.target)); return; }
@@ -1208,6 +1234,12 @@ $('rows').addEventListener('keydown', function(e){
   }
 });
 $('addItem').addEventListener('click', function(){ addRow('', '30'); });
+// 予定を空の1行だけにして、最初から組み直せるようにする（日付・開始時刻・メンバーはそのまま）
+armed($('clearItems'), 'この日の予定をすべて消す', 'すべて消す（もう一度押す）', function(){
+  curDay().items = [blankItem('', '30')];
+  renderRows(); update();
+  var inp = $('n-'+curDay().items[0].id); if (inp) inp.focus();
+});
 $('addHead').addEventListener('click', function(){ addRow('【見出し】', ''); });
 
 // ---- 日付タブ・日の設定 ----

@@ -10,7 +10,7 @@
   --cell:#fff2cc; --cell-line:#e3cc74; --head:#efefe6;
   --bar:#2c6e8a; --shade:#ebe9de; --today:#b4532a; --warn:#9a3412; --done:#3f7d3a;
   --btn:#ffe08a; --on-btn:#3a2f00;
-  --label:150px; --rowh:30px;
+  --label:176px; --rowh:30px;
   --font-body:"Zen Kaku Gothic New","Hiragino Sans","Yu Gothic",system-ui,sans-serif;
   --font-num:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
   color-scheme:light;
@@ -30,13 +30,13 @@
 [hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-body);font-size:14px;line-height:1.7;
   padding-inline:16px;padding-block:calc(20px + env(safe-area-inset-top,0px)) calc(56px + env(safe-area-inset-bottom,0px))}
-.wrap{max-width:980px;margin-inline:auto;display:flex;flex-direction:column;gap:28px}
+.wrap{max-width:1400px;margin-inline:auto;display:flex;flex-direction:column;gap:28px}
 h1{font-size:22px;line-height:1.3;margin:0;font-weight:700}
 h1{display:flex;align-items:center;gap:10px}
 .logo{width:30px;height:30px;flex:none}
 h2{font-size:15px;margin:0;font-weight:700}
 p{margin:0}
-.lede,.hint{color:var(--muted);font-size:13px;max-width:65ch}
+.lede,.hint{color:var(--muted);font-size:13px}
 section{display:flex;flex-direction:column;gap:10px;min-width:0}
 header{display:flex;flex-direction:column;gap:6px}
 .tools{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12.5px}
@@ -107,6 +107,9 @@ td.ops{text-align:right}
 .k-done{width:22px;height:10px;border-radius:3px;background:var(--done);opacity:.45}
 .k-now{width:0;height:14px;border-left:2px dashed var(--today)}
 .g-scroll{overflow-x:auto;border:1px solid var(--line);background:var(--surface)}
+/* 時間軸が枠より短いときも、行の線や見出しの帯は右端まで伸ばす */
+.g-scroll .gantt{min-width:100%}
+.g-scroll .g-track{flex-grow:1}
 .gantt{position:relative;font-size:12px;user-select:none;-webkit-user-select:none}
 .g-row{display:flex}
 .g-label{position:sticky;left:0;z-index:3;flex:0 0 var(--label);width:var(--label);background:var(--surface);border-right:1px solid var(--line);
@@ -151,6 +154,9 @@ td.grip{width:26px;padding-right:0}
 tr.moving td,.g-row.moving .g-label{opacity:.45}
 .g-row .g-label{cursor:grab}
 .g-grip{display:inline-block;padding:0 6px 0 0;touch-action:none}
+/* 表の「済」と同じ完了チェック。見出しの行は同じ幅だけ空けて名前の位置をそろえる */
+.g-chk{width:16px;height:16px;margin:0 6px 0 0;accent-color:var(--done);cursor:pointer;vertical-align:middle}
+.g-chk-sp{display:inline-block;width:22px}
 tr.drop-before td{box-shadow:inset 0 2px 0 var(--fg)}
 tr.drop-after td{box-shadow:inset 0 -2px 0 var(--fg)}
 .g-row.drop-before .g-label,.g-row.drop-before .g-track{box-shadow:inset 0 2px 0 var(--fg)}
@@ -166,7 +172,7 @@ body.drag-size,body.drag-size *{cursor:ew-resize!important}
 
 /* スマホでは、タスク表を1件ずつのカードにする */
 @media (max-width:640px){
-  :root{--label:112px}
+  :root{--label:132px}
   .tbl-scroll{border:0;background:none;overflow:visible}
   table,tbody{display:block;min-width:0}
   thead{display:none}
@@ -224,7 +230,7 @@ body.drag-size,body.drag-size *{cursor:ew-resize!important}
       <span class="spacer"></span>
       <button type="button" class="btn plain" id="clearDay">この日のタスクをすべて消す</button>
     </div>
-    <p class="hint">所要時間は「30」（分）、「1:30」、「1時間半」のように書けます。タスクは上から順に、前のタスクが終わった時刻から始まります。会議など時刻が決まっているものは、その行の開始時刻を書き換えると固定されます（黄色）。× を押すと前に続く形に戻ります。所要時間を空欄にした行は見出しになります。タスク名の欄で Enter を押すと、すぐ下に次の行が増えます。タスク・所要時間の欄では ↑ ↓ で上下の行に、文字の端で ← → を押すと隣の欄に移れます。空のタスク欄で Backspace を押すと、その行が消えます。</p>
+    <p class="hint">所要時間は「30」（分）、「1:30」、「1時間半」のように書けます。タスクは上から順に、前のタスクが終わった時刻から始まります。会議など時刻が決まっているものは、その行の開始時刻を書き換えると固定されます（黄色）。× を押すと前に続く形に戻ります。所要時間を空欄にした行は見出しになります。タスク名の欄で Enter を押すと、すぐ下に次の行が増えます。タスク・所要時間の欄では ↑ ↓ で上下の行に、文字の端で ← → を押すと隣の欄に移れます。空のタスク欄で Backspace を押すと、その行が消えます。option（Windows は Alt）＋ ↑ ↓ で、その行ごと上下に入れ替えられます。</p>
   </section>
 
   <section>
@@ -240,7 +246,7 @@ body.drag-size,body.drag-size *{cursor:ew-resize!important}
       <span class="status" id="ganttStatus" role="status" aria-live="polite"></span>
       <button type="button" class="btn plain" id="undo" hidden>元に戻す</button>
     </div>
-    <p class="hint">バーを左右にドラッグすると開始時刻が変わり、その時刻に固定されます（後ろのタスクもずれます）。バーの右端をドラッグすると所要時間、左端をドラッグすると終わりはそのままで開始時刻が変わります。5分刻みで動きます。タスク名を上下にドラッグすると順番を入れ替えられます。キーボードでは、バーを選んで ← → で移動、Shift＋← → で所要時間を変更できます。</p>
+    <p class="hint">バーを左右にドラッグすると開始時刻が変わり、その時刻に固定されます（後ろのタスクもずれます）。バーの右端をドラッグすると所要時間、左端をドラッグすると終わりはそのままで開始時刻が変わります。5分刻みで動きます。タスク名を上下にドラッグすると順番を入れ替えられます。タスク名の左のチェックで完了にできます（表の「済」と連動します）。キーボードでは、バーを選んで ← → で移動、Shift＋← → で所要時間を変更できます。</p>
   </section>
 
   <section>
@@ -620,6 +626,8 @@ function renderTimeline(res){
   else if (tFrom != null && res.minS - tFrom >= 15 && res.minS - tFrom <= 180) from = tFrom;
   else from = Math.max(0, Math.floor((res.minS - 30)/60)*60);
   to = Math.max(Math.ceil((res.maxE + 30)/60)*60, from + 6*60);
+  // 枠が広いときは、右側が空かないように見えている幅いっぱいまで時間軸を伸ばす
+  to = Math.max(to, from + Math.floor((el.clientWidth - labelW() - 2) / px(60)) * 60);
   if (drag) to = Math.max(to, drag.to);
   var W = px(to - from), hours = '', grid = '';
   for (m=from; m<to; m+=60) {
@@ -643,7 +651,9 @@ function renderTimeline(res){
               '<i class="h h-l" data-h="head"></i><i class="h h-r" data-h="tail"></i></div>'+
               '<div class="bar-label" style="left:'+(left+width)+'px">'+esc(fmt(r.s))+'–'+esc(fmt(r.e))+(name?'<span class="nm">'+esc(name)+'</span>':'')+(done?'<span class="ok">✓</span>':'')+(r.over?'<span class="flag">重なり</span>':'')+'</div>';
     }
-    return '<div class="g-row'+(r.s==null?' is-head':'')+(done?' is-done':'')+'" data-i="'+idx+'"><div class="g-label" title="'+esc(name)+'"><span class="g-grip"><i class="dots"></i></span>'+esc(name||'（名前なし）')+'</div>'+
+    return '<div class="g-row'+(r.s==null?' is-head':'')+(done?' is-done':'')+'" data-i="'+idx+'"><div class="g-label" title="'+esc(name)+'"><span class="g-grip"><i class="dots"></i></span>'+
+           (r.s != null ? '<input type="checkbox" class="g-chk" data-i="'+idx+'"'+(t.done?' checked':'')+' aria-label="完了" title="完了">' : '<span class="g-chk-sp"></span>')+
+           esc(name||'（名前なし）')+'</div>'+
            '<div class="g-track" style="width:'+W+'px">'+track+'</div></div>';
   }).join('');
   el.innerHTML = '<div class="gantt" style="width:calc(var(--label) + '+W+'px)">'+
@@ -658,6 +668,10 @@ function renderTimeline(res){
   if (tFrom != null && tFrom !== from) el.scrollLeft += px(tFrom - from);
   tFrom = from; tTo = to;
 }
+
+// 画面の幅が変わったら、広がった分まで時間軸を伸ばして描き直す
+var resizeTimer;
+window.addEventListener('resize', function(){ clearTimeout(resizeTimer); resizeTimer = setTimeout(function(){ if (last && !drag) renderTimeline(last); }, 150); });
 
 // ツールチップ
 var tip = $('tip');
@@ -841,6 +855,14 @@ function orderTick(){
   if (v) { window.scrollBy(0, v); orderMove(order.y); }
   requestAnimationFrame(orderTick);
 }
+// ガントチャートの名前の左のチェックでも完了にできる（表の「済」と連動）
+$('gantt').addEventListener('change', function(e){
+  if (!e.target.classList.contains('g-chk')) return;
+  var t = items()[+e.target.getAttribute('data-i')]; if (!t) return;
+  t.done = e.target.checked;
+  var c = $('c-'+t.id); if (c) c.checked = t.done;
+  update();
+});
 $('rows').addEventListener('pointerdown', function(e){
   var grip = e.target.closest && e.target.closest('.grip-h');
   if (!grip || e.button) return;
@@ -848,7 +870,7 @@ $('rows').addEventListener('pointerdown', function(e){
 });
 $('gantt').addEventListener('pointerdown', function(e){
   var label = e.target.closest && e.target.closest('.g-body .g-row .g-label');
-  if (!label || e.button) return;
+  if (!label || e.button || e.target.classList.contains('g-chk')) return;
   // 指での操作は、つまみ（点々）からだけ始める。名前の上をなぞったときはページのスクロールを優先する
   if (e.pointerType !== 'mouse' && !(e.target.closest && e.target.closest('.g-grip'))) return;
   orderStart(e, '#gantt .g-body .g-row', +label.parentNode.getAttribute('data-i'), true);
@@ -901,8 +923,23 @@ function focusField(t, f, at){
   var inp = t && $((f === 'dur' ? 'd-' : 'n-') + t.id); if (!inp) return;
   inp.focus(); var n = at == null ? inp.value.length : at; inp.setSelectionRange(n, n);
 }
+// 表のどの欄でも option（Windows は Alt）＋ ↑ ↓ で、その行ごと上下に入れ替える（VS Code の行の移動と同じ）。
+// カーソルは動かした行の同じ欄についていく。
+function moveRowByKey(e){
+  var list = items(), t = itemOf(e.target), i = list.indexOf(t), j = i + (e.key === 'ArrowUp' ? -1 : 1);
+  if (i < 0 || j < 0 || j >= list.length) return;
+  var id = e.target.id, s = e.target.selectionStart, en = e.target.selectionEnd;
+  list.splice(i, 1); list.splice(j, 0, t);
+  renderRows(); update();
+  var el = $(id); if (!el) return;
+  el.focus();
+  try { if (s != null) el.setSelectionRange(s, en); } catch (_) {}
+}
 $('rows').addEventListener('keydown', function(e){
   var f = e.target.getAttribute('data-f');
+  if (f && e.altKey && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.isComposing && e.keyCode !== 229 && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+    e.preventDefault(); moveRowByKey(e); return;
+  }
   if (f !== 'name' && f !== 'dur') return;
   if (isPlainEnter(e)) { e.preventDefault(); addRow('', '30', itemOf(e.target)); return; }
   if (e.isComposing || e.keyCode === 229 || e.shiftKey || e.altKey || e.metaKey || e.ctrlKey) return;
@@ -930,6 +967,7 @@ $('addHead').addEventListener('click', function(){ addRow('【見出し】', '')
 armed($('clearDay'), 'この日のタスクをすべて消す', 'すべて消す（もう一度押す）', function(){
   curDay().items = [blankItem('', '30')];
   renderRows(); update();
+  var inp = $('n-'+curDay().items[0].id); if (inp) inp.focus();
 });
 
 // ---- 日付 ----
