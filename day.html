@@ -870,10 +870,6 @@ function renderTimeline(res){
   for (m=from+30; m<to; m+=30) grid += '<div class="g-grid'+(m%60?'':' hour')+'" style="left:calc(var(--label) + '+px(m-from)+'px)"></div>';
   if (to > 1440 && from < 1440) grid += '<div class="g-next" style="left:calc(var(--label) + '+px(1440-from)+'px)"></div>';
   var dd = parseDate(d.date);
-  if (dd === today()) {
-    var now = new Date(), nm = now.getHours()*60 + now.getMinutes();
-    if (nm >= from && nm <= to) grid += '<div class="g-now" title="いま" style="left:calc(var(--label) + '+px(nm-from)+'px)"></div>';
-  }
   var rows = d.items.map(function(t, idx){
     var r = res.rows[idx], name = String(t.name||'').trim();
     if (!name && r.s==null) return '';
@@ -898,7 +894,20 @@ function renderTimeline(res){
   // 表示範囲の左端が変わったら、そのぶんスクロール位置をずらして見た目を保つ
   if (tFrom != null && tFrom !== from) el.scrollLeft += px(tFrom - from);
   tFrom = from; tTo = to;
+  placeNow();
 }
+// 「いま」の線。ガントチャート全体は描き直さず、線の位置だけを動かす（バーの選択やドラッグを邪魔しない）
+function placeNow(){
+  var body = $('gantt').querySelector('.g-body'); if (!body || tFrom == null) return;
+  var line = body.querySelector('.g-now'), now = new Date(), nm = now.getHours()*60 + now.getMinutes();
+  if (parseDate(curDay().date) !== today() || nm < tFrom || nm > tTo) { if (line) line.remove(); return; }
+  if (!line) { line = document.createElement('div'); line.className = 'g-now'; line.title = 'いま'; body.insertBefore(line, body.firstChild); }
+  line.style.left = 'calc(var(--label) + ' + px(nm - tFrom) + 'px)';
+}
+setInterval(placeNow, 60000);
+// スリープ明けや別のタブから戻ったときは、1分待たずにすぐ合わせる
+document.addEventListener('visibilitychange', function(){ if (!document.hidden) placeNow(); });
+
 
 // 画面の幅が変わったら、広がった分まで時間軸を伸ばして描き直す
 var resizeTimer;
