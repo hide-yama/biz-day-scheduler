@@ -227,10 +227,11 @@ body.drag-size,body.drag-size *{cursor:ew-resize!important}
     <div class="row-actions">
       <button type="button" class="btn" id="addItem">＋ タスクを追加</button>
       <button type="button" class="btn plain" id="addHead">＋ 見出しを追加</button>
+      <span class="status" id="rowStatus" role="status" aria-live="polite"></span>
       <span class="spacer"></span>
       <button type="button" class="btn plain" id="clearDay">この日のタスクをすべて消す</button>
     </div>
-    <p class="hint">所要時間は「30」（分）、「1:30」、「1時間半」のように書けます。タスクは上から順に、前のタスクが終わった時刻から始まります。会議など時刻が決まっているものは、その行の開始時刻を書き換えると固定されます（黄色）。× を押すと前に続く形に戻ります。所要時間を空欄にした行は見出しになります。タスク名の欄で Enter を押すと、すぐ下に次の行が増えます。タスク・所要時間の欄では ↑ ↓ で上下の行に、文字の端で ← → を押すと隣の欄に移れます。空のタスク欄で Backspace を押すと、その行が消えます。option（Windows は Alt）＋ ↑ ↓ で、その行ごと上下に入れ替えられます。</p>
+    <p class="hint">所要時間は「30」（分）、「1:30」、「1時間半」のように書けます。タスクは上から順に、前のタスクが終わった時刻から始まります。会議など時刻が決まっているものは、その行の開始時刻を書き換えると固定されます（黄色）。× を押すと前に続く形に戻ります。「明日へ」を押すと、そのタスクを次の日の一番最後に移します（時刻の固定は外れます）。所要時間を空欄にした行は見出しになります。タスク名の欄で Enter を押すと、すぐ下に次の行が増えます。タスク・所要時間の欄では ↑ ↓ で上下の行に、文字の端で ← → を押すと隣の欄に移れます。空のタスク欄で Backspace を押すと、その行が消えます。option（Windows は Alt）＋ ↑ ↓ で、その行ごと上下に入れ替えられます。</p>
   </section>
 
   <section>
@@ -521,14 +522,15 @@ var store = load();
 var last = null;
 var $ = function(id){ return document.getElementById(id); };
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function curDay(){
-  if (!store.days[store.date]) {
+function dayAt(key){
+  if (!store.days[key]) {
     // まだ何もない日は、前の日の開始時刻を引き継いで空の1行から始める
-    var prev = Object.keys(store.days).filter(function(k){ return k < store.date; }).sort().pop();
-    store.days[store.date] = {start:prev ? store.days[prev].start : '09:00', items:[blankItem('', '30')]};
+    var prev = Object.keys(store.days).filter(function(k){ return k < key; }).sort().pop();
+    store.days[key] = {start:prev ? store.days[prev].start : '09:00', items:[blankItem('', '30')]};
   }
-  return store.days[store.date];
+  return store.days[key];
 }
+function curDay(){ return dayAt(store.date); }
 function items(){ return curDay().items; }
 function itemById(id){ return items().filter(function(t){ return t.id===id; })[0]; }
 
@@ -566,6 +568,7 @@ function renderRows(){
       '<td class="date" data-c="e" data-l="終了"></td>'+
       '<td class="ops"><button type="button" class="icon" data-act="up" aria-label="上へ移動"'+(i===0?' disabled':'')+'>↑</button>'+
       '<button type="button" class="icon" data-act="down" aria-label="下へ移動"'+(i===n-1?' disabled':'')+'>↓</button>'+
+      '<button type="button" class="icon" data-act="carry" aria-label="明日に持ち越す" title="明日の最後に移す">明日へ</button>'+
       '<button type="button" class="icon" data-act="del" aria-label="この行を削除">削除</button></td></tr>';
   }).join('');
 }
@@ -582,6 +585,7 @@ function update(){
     tr.classList.toggle('is-head', isHead);
     tr.classList.toggle('is-done', !isHead && !!t.done);
     tr.querySelector('[data-f="done"]').hidden = isHead;
+    tr.querySelector('[data-act="carry"]').hidden = isHead || !!t.done;
     var inp = tr.querySelector('[data-f="at"]'), st = tr.querySelector('.st'), note = tr.querySelector('.note');
     st.hidden = r.s == null;
     if (r.s != null) {
@@ -912,6 +916,7 @@ $('rows').addEventListener('click', function(e){
   var list = items(), t = itemOf(e.target), i = list.indexOf(t);
   if (i < 0) return;
   if (act==='unpin') { clearEdit(); t.at = ''; update(); return; }
+  if (act==='carry') { carry(t); return; }
   if (act==='del') list.splice(i,1);
   if (act==='up' && i>0) { list.splice(i,1); list.splice(i-1,0,t); }
   if (act==='down' && i<list.length-1) { list.splice(i,1); list.splice(i+1,0,t); }
@@ -971,6 +976,17 @@ $('rows').addEventListener('keydown', function(e){
     focusField(list[i > 0 ? i-1 : 0], 'name');
   }
 });
+// 明日に持ち越す：この日から外して、次の日の最後に足す。時刻の固定は外し、前に続く形にする。
+// 次の日が空の1行だけなら、その行と入れ替える。
+function carry(t){
+  var n = parseDate(store.date) + 1, next = dayAt(iso(n)), list = items();
+  if (isEmpty(next)) next.items = [];
+  next.items.push({id:nid(), name:t.name, dur:t.dur, at:'', done:false});
+  list.splice(list.indexOf(t), 1);
+  if (!list.length) list.push(blankItem('', '30'));
+  renderRows(); update();
+  $('rowStatus').textContent = itemName(t)+'を '+mdw(n)+' の最後に移しました。';
+}
 $('addItem').addEventListener('click', function(){ addRow('', '30'); });
 $('addHead').addEventListener('click', function(){ addRow('【見出し】', ''); });
 armed($('clearDay'), 'この日のタスクをすべて消す', 'すべて消す（もう一度押す）', function(){
@@ -980,7 +996,7 @@ armed($('clearDay'), 'この日のタスクをすべて消す', 'すべて消す
 });
 
 // ---- 日付 ----
-function goDate(n){ if (n == null) return; store.date = iso(n); renderAll(); }
+function goDate(n){ if (n == null) return; store.date = iso(n); $('rowStatus').textContent = ''; renderAll(); }
 $('date').addEventListener('change', function(){ goDate(parseDate(this.value)); });
 $('prevDay').addEventListener('click', function(){ goDate(parseDate(store.date) - 1); });
 $('nextDay').addEventListener('click', function(){ goDate(parseDate(store.date) + 1); });
