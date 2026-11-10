@@ -74,6 +74,23 @@ td.date{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:
 tr.is-head td.name input{font-weight:700}
 tr.is-head td.date{color:var(--muted)}
 td.ops{text-align:right}
+/* よく使うタスク（行の ☆、表の下の一覧、タスク名の欄の候補） */
+.icon.fav{padding-inline:5px;font-size:14px}
+.icon.fav.on{color:var(--fg)}
+.favs{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12.5px}
+.favs-l{color:var(--muted)}
+.fchip{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:999px;background:var(--surface)}
+.fchip:hover{border-color:var(--muted)}
+.fadd,.fdel{background:none;border:0;cursor:pointer;line-height:1.5}
+.fadd{display:inline-flex;align-items:baseline;gap:6px;padding:3px 2px 3px 11px}
+.fadd small,.fp-o small{color:var(--muted);font-family:var(--font-num);font-size:11px}
+.fdel{color:var(--muted);padding:3px 10px 3px 6px;border-radius:999px}
+.fdel:hover{color:var(--fg)}
+.fav-pop{position:fixed;z-index:20;background:var(--surface);border:1px solid var(--line);border-radius:4px;box-shadow:0 6px 18px rgba(0,0,0,.16);
+  padding:4px 0;max-width:calc(100vw - 16px);font-size:13px}
+.fp-h{padding:2px 10px 4px;font-size:11px;color:var(--muted)}
+.fp-o{display:flex;justify-content:space-between;align-items:baseline;gap:18px;padding:5px 10px;cursor:pointer;white-space:nowrap}
+.fp-o:hover,.fp-o.on{background:var(--head)}
 .icon{background:none;border:1px solid transparent;border-radius:3px;padding:2px 7px;cursor:pointer;color:var(--muted);font-size:13px}
 .icon:hover{border-color:var(--line);color:var(--fg)}
 .icon:disabled{opacity:.25;cursor:default}
@@ -194,11 +211,14 @@ textarea{width:100%;max-width:320px;min-height:96px;font-family:var(--font-num);
     <div class="row-actions">
       <button type="button" class="btn" id="addTask">＋ タスクを追加</button>
       <button type="button" class="btn plain" id="addHead">＋ 見出しを追加</button>
+      <span class="status" id="rowStatus" role="status" aria-live="polite"></span>
       <span class="spacer"></span>
       <button type="button" class="btn plain" id="clearTasks">タスクをすべて消す</button>
       <button type="button" class="btn plain" id="reset">サンプルに戻す</button>
     </div>
+    <div class="favs" id="favs" hidden></div>
     <p class="hint" id="hint"></p>
+    <p class="hint">案件ごとにくり返し入れるタスクは、行の ☆ を押すと「よく使うタスク」に登録できます（タスク名と日数。このページだけに保存され、タスクスケジューラの登録とは別です）。空のタスク名の欄に入ったときや、タスク名を打ったときに候補が出るので、↓ で選んで Enter（またはクリック）で入れられます。候補を閉じるときは Esc です。表の下の一覧を押しても行が増えます。★ や一覧の × を押すと登録から外れます。</p>
   </section>
 
   <section>
@@ -242,6 +262,7 @@ textarea{width:100%;max-width:320px;min-height:96px;font-family:var(--font-num);
   </details>
 </div>
 <div id="tip" hidden></div>
+<div class="fav-pop" id="favPop" role="listbox" aria-label="よく使うタスク" hidden></div>
 
 <script>
 (function(){
@@ -549,7 +570,7 @@ function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').rep
 
 // ---- タスク表 ----
 function renderRows(){
-  clearEdit();
+  clearEdit(); closePop();
   var n = state.tasks.length;
   $('rows').innerHTML = state.tasks.map(function(t,i){
     var opts = ['after','with','first','fixed'].map(function(k){
@@ -562,7 +583,8 @@ function renderRows(){
       '<td><div class="how"><select id="m-'+t.id+'" data-f="start" aria-label="開始タイミング">'+opts+'</select>'+
       '<input type="date" id="f-'+t.id+'" data-f="fixed" value="'+esc(t.fixed||'')+'" aria-label="固定する日付"></div></td>'+
       '<td class="date" data-c="s"></td><td class="date" data-c="e"></td>'+
-      '<td class="ops"><button type="button" class="icon" data-act="up" aria-label="上へ移動"'+(i===0?' disabled':'')+'>↑</button>'+
+      '<td class="ops"><button type="button" class="icon fav" data-act="fav" aria-pressed="false" aria-label="よく使うタスクに登録" title="よく使うタスクに登録">☆</button>'+
+      '<button type="button" class="icon" data-act="up" aria-label="上へ移動"'+(i===0?' disabled':'')+'>↑</button>'+
       '<button type="button" class="icon" data-act="down" aria-label="下へ移動"'+(i===n-1?' disabled':'')+'>↓</button>'+
       '<button type="button" class="icon" data-act="del" aria-label="この行を削除">削除</button></td></tr>';
   }).join('');
@@ -581,6 +603,7 @@ function update(){
     tr.querySelector('[data-c="s"]').innerHTML = r.s==null ? (isHead?'見出し':'') : esc(mdw(r.s)) + (r.flagAt==='s'?flag:'');
     tr.querySelector('[data-c="e"]').innerHTML = r.e==null ? '' : esc(mdw(r.e)) + (r.flagAt==='e'?flag:'');
   });
+  paintStars();
   // サマリー
   var sum = '';
   if (res.minS != null) {
@@ -904,6 +927,7 @@ $('rows').addEventListener('change', onField);
 $('rows').addEventListener('click', function(e){
   var act = e.target.getAttribute('data-act'); if (!act) return;
   var t = taskOf(e.target), i = state.tasks.indexOf(t);
+  if (act==='fav') { toggleFav(t); return; }
   if (act==='del') state.tasks.splice(i,1);
   if (act==='up' && i>0) { state.tasks.splice(i,1); state.tasks.splice(i-1,0,t); }
   if (act==='down' && i<state.tasks.length-1) { state.tasks.splice(i,1); state.tasks.splice(i+1,0,t); }
@@ -940,6 +964,7 @@ $('rows').addEventListener('keydown', function(e){
   if (f && e.altKey && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.isComposing && e.keyCode !== 229 && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
     e.preventDefault(); moveRowByKey(e); return;
   }
+  if (popKey(e)) return;
   if (f !== 'name' && f !== 'days') return;
   if (e.isComposing || e.keyCode === 229 || e.shiftKey || e.altKey || e.metaKey || e.ctrlKey) return;
   if (e.key === 'Enter') { e.preventDefault(); addRow('', '1', taskOf(e.target)); return; }
@@ -962,6 +987,155 @@ $('rows').addEventListener('keydown', function(e){
     focusField(list[i > 0 ? i-1 : 0], 'name');
   }
 });
+// ---- よく使うタスク ----
+// 保存先と、日数の欄の扱い（ページごとに違うところ）
+var FAV = {key:'bizsched.fav.v1', f:'days',
+  show:function(v){ var n = parseDays(v); return n ? n+'日' : '見出し'; },
+  list:function(){ return state.tasks; }, item:function(el){ return taskOf(el); }, add:function(name, v){ addRow(name, v); }};
+// このページだけに保存する（ほかのページの登録とは混ざらない）。行の ☆ で登録・解除し、
+// タスク名の欄に入ると候補が出る。表の下の一覧から押しても行を足せる。
+var FAVMAX = 50, FAVSHOW = 8;
+var favs = (function(){
+  var a = null; try { a = JSON.parse(localStorage.getItem(FAV.key) || 'null'); } catch(e){}
+  if (!Array.isArray(a)) return [];
+  var seen = {}, out = [];
+  a.forEach(function(f){
+    if (!f || typeof f !== 'object') return;
+    var name = String(f.name==null?'':f.name).trim().slice(0, 200);
+    if (!name || seen[name] || out.length >= FAVMAX) return;
+    seen[name] = 1;
+    out.push({name:name, v:String(f.v==null?'':f.v).slice(0, 20), n:+f.n||0, t:+f.t||0});
+  });
+  return out;
+})();
+function saveFavs(){ try { localStorage.setItem(FAV.key, JSON.stringify(favs)); } catch(e){} }
+function favOf(name){
+  var k = String(name||'').trim(), i;
+  if (k) for (i=0;i<favs.length;i++) if (favs[i].name === k) return favs[i];
+  return null;
+}
+// よく使った順（同じ回数なら最近使った順）
+function favSorted(){ return favs.slice().sort(function(a,b){ return (b.n-a.n) || (b.t-a.t); }); }
+function useFav(f){ f.n++; f.t = Date.now(); saveFavs(); renderFavs(); }
+function dropFav(f){ favs.splice(favs.indexOf(f), 1); saveFavs(); renderFavs(); paintStars(); }
+function toggleFav(t){
+  var name = String(t.name||'').trim(), f = favOf(name);
+  if (!name) return;
+  if (f) dropFav(f);
+  else {
+    // いっぱいのときは、いちばん使っていないものと入れ替える
+    if (favs.length >= FAVMAX) favs.splice(favs.indexOf(favSorted().pop()), 1);
+    favs.push({name:name, v:String(t[FAV.f]==null?'':t[FAV.f]), n:0, t:Date.now()});
+    saveFavs(); renderFavs(); paintStars();
+  }
+  $('rowStatus').textContent = '「'+name+'」を'+(f ? 'よく使うタスクから外しました。' : 'よく使うタスクに登録しました。');
+}
+function paintStars(){
+  var trs = $('rows').children;
+  FAV.list().forEach(function(t, i){
+    var b = trs[i] && trs[i].querySelector('[data-act="fav"]'); if (!b) return;
+    var on = !!favOf(t.name), label = on ? 'よく使うタスクから外す' : 'よく使うタスクに登録';
+    b.hidden = !String(t.name||'').trim();
+    b.textContent = on ? '★' : '☆';
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    b.setAttribute('aria-label', label); b.title = label;
+  });
+}
+
+// 表の下の一覧。押すとその行を足す（最後の行が空ならそこに入れる）。× で登録から外す。
+function renderFavs(){
+  var el = $('favs'), list = favSorted();
+  el.hidden = !list.length;
+  el.innerHTML = !list.length ? '' : '<span class="favs-l">よく使う：</span>' + list.map(function(f){
+    var nm = esc(f.name);
+    return '<span class="fchip"><button type="button" class="fadd" data-name="'+nm+'" title="「'+nm+'」の行を追加">'+nm+'<small>'+esc(FAV.show(f.v))+'</small></button>'+
+      '<button type="button" class="fdel" data-name="'+nm+'" aria-label="「'+nm+'」を登録から外す" title="登録から外す">×</button></span>';
+  }).join('');
+}
+$('favs').addEventListener('click', function(e){
+  var b = e.target.closest('button'); if (!b) return;
+  var f = favOf(b.getAttribute('data-name')); if (!f) return;
+  if (b.classList.contains('fdel')) { dropFav(f); $('rowStatus').textContent = '「'+f.name+'」をよく使うタスクから外しました。'; return; }
+  var list = FAV.list(), lastT = list[list.length-1];
+  useFav(f);
+  if (lastT && !String(lastT.name||'').trim()) {
+    lastT.name = f.name; lastT[FAV.f] = f.v;
+    renderRows(); update();
+    var inp = $('n-'+lastT.id); if (inp) { inp.focus(); inp.select(); }
+  } else FAV.add(f.name, f.v);
+});
+
+// タスク名の欄の候補。空の欄に入ったときと、文字を打ったときに出す。
+var pop = null;   // {input, list, act（選んでいる候補。-1 はまだ選んでいない）}
+function favMatches(q){
+  q = String(q||'').trim().toLowerCase();
+  return favSorted().filter(function(f){ var k = f.name.toLowerCase(); return k !== q && k.indexOf(q) >= 0; }).slice(0, FAVSHOW);
+}
+function openPop(inp){
+  var list = favMatches(inp.value), el = $('favPop');
+  if (!list.length) { closePop(); return; }
+  if (pop && pop.input !== inp) closePop();
+  pop = {input:inp, list:list, act:-1};
+  el.innerHTML = '<div class="fp-h">よく使うタスク</div>' + list.map(function(f, i){
+    return '<div class="fp-o" role="option" id="fp-'+i+'" data-i="'+i+'" aria-selected="false"><span>'+esc(f.name)+'</span><small>'+esc(FAV.show(f.v))+'</small></div>';
+  }).join('');
+  el.hidden = false;
+  inp.setAttribute('aria-expanded', 'true'); inp.setAttribute('aria-controls', 'favPop'); inp.removeAttribute('aria-activedescendant');
+  placePop();
+}
+function placePop(){
+  if (!pop) return;
+  var el = $('favPop'), r = pop.input.getBoundingClientRect();
+  if (r.bottom < 0 || r.top > window.innerHeight) { closePop(); return; }
+  el.style.minWidth = r.width + 'px';
+  el.style.left = Math.max(8, Math.min(r.left, window.innerWidth - el.offsetWidth - 8)) + 'px';
+  var h = el.offsetHeight, below = r.bottom + 2;
+  el.style.top = (below + h > window.innerHeight - 8 && r.top - h - 2 > 8 ? r.top - h - 2 : below) + 'px';
+}
+function closePop(){
+  if (!pop) return;
+  pop.input.setAttribute('aria-expanded', 'false'); pop.input.removeAttribute('aria-activedescendant');
+  pop = null; $('favPop').hidden = true;
+}
+function setAct(i){
+  var os = $('favPop').querySelectorAll('.fp-o'), k;
+  pop.act = i;
+  for (k=0;k<os.length;k++) { os[k].classList.toggle('on', k===i); os[k].setAttribute('aria-selected', k===i ? 'true' : 'false'); }
+  if (i >= 0) pop.input.setAttribute('aria-activedescendant', 'fp-'+i); else pop.input.removeAttribute('aria-activedescendant');
+}
+function pickFav(f){
+  var inp = pop.input, t = FAV.item(inp);
+  closePop();
+  if (!t) return;
+  clearEdit();
+  t.name = f.name; t[FAV.f] = f.v;
+  inp.value = f.name;
+  var d = $('d-'+t.id); if (d) d.value = f.v;
+  useFav(f); update();
+  inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length);
+}
+// 候補が出ているときは ↓ で候補に入り、↑ ↓ で選んで Enter で入れる。Esc で閉じる。
+// 候補を選んでいないときの ↑ や Enter は、いつもどおり（上の行へ移る／下に行を足す）。
+function popKey(e){
+  if (!pop || pop.input !== e.target || e.isComposing || e.keyCode === 229 || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return false;
+  if (e.key === 'ArrowDown') { e.preventDefault(); setAct(Math.min(pop.list.length-1, pop.act+1)); return true; }
+  if (e.key === 'ArrowUp' && pop.act >= 0) { e.preventDefault(); setAct(pop.act-1); return true; }
+  if (e.key === 'Enter' && pop.act >= 0) { e.preventDefault(); pickFav(pop.list[pop.act]); return true; }
+  if (e.key === 'Escape') { e.preventDefault(); closePop(); return true; }
+  return false;
+}
+$('rows').addEventListener('input', function(e){ if (e.target.getAttribute('data-f') === 'name') openPop(e.target); });
+$('rows').addEventListener('focusin', function(e){ if (e.target.getAttribute('data-f') === 'name' && !e.target.value.trim()) openPop(e.target); });
+$('rows').addEventListener('focusout', function(e){ if (pop && pop.input === e.target) closePop(); });
+$('favPop').addEventListener('pointerdown', function(e){
+  e.preventDefault();   // 入力欄からフォーカスを外さない
+  var o = e.target.closest('.fp-o'); if (o && pop) pickFav(pop.list[+o.getAttribute('data-i')]);
+});
+window.addEventListener('scroll', placePop, true);
+window.addEventListener('resize', placePop);
+renderFavs();
+
 $('addTask').addEventListener('click', function(){ addRow('', '1'); });
 $('addHead').addEventListener('click', function(){ addRow('【見出し】', ''); });
 
