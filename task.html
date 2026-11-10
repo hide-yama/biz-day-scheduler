@@ -249,7 +249,7 @@ body.drag-size,body.drag-size *{cursor:ew-resize!important}
       <button type="button" class="btn plain" id="clearDay">この日のタスクをすべて消す</button>
     </div>
     <div class="favs" id="favs" hidden></div>
-    <p class="hint">所要時間は「30」（分）、「1:30」、「1時間半」のように書けます。タスクは上から順に、前のタスクが終わった時刻から始まります。会議など時刻が決まっているものは、その行の開始時刻を書き換えると固定されます（黄色）。× を押すと前に続く形に戻ります。「明日へ」を押すと、そのタスクを次の日の一番最後に移します（時刻の固定は外れます）。所要時間を空欄にした行は見出しになります。タスク名の欄で Enter を押すと、すぐ下に次の行が増えます。タスク・所要時間の欄では ↑ ↓ で上下の行に、文字の端で ← → を押すと隣の欄に移れます。空のタスク欄で Backspace を押すと、その行が消えます。option（Windows は Alt）＋ ↑ ↓ で、その行ごと上下に入れ替えられます。</p>
+    <p class="hint">所要時間は「30」（分）、「1:30」、「1時間半」のように書けます。タスクは上から順に、前のタスクが終わった時刻から始まります。会議など時刻が決まっているものは、その行の開始時刻を書き換えると固定されます（黄色）。× を押すと前に続く形に戻ります。「明日へ」を押すと、そのタスクを次の日の一番最後に移します（時刻の固定は外れます）。所要時間を空欄にした行は見出しになります。タスク名の欄で Enter を押すと、すぐ下に次の行が増えます。タスク・所要時間の欄では ↑ ↓ で上下の行に、文字の端で ← → を押すと隣の欄に移れます。空のタスク欄で Backspace を押すと、その行が消えます。option（Windows は Alt）＋ ↑ ↓ で、その行ごと上下に入れ替えられます。⌘（Windows は Ctrl）＋ Enter で、その行の完了を付けたり外したりできます。</p>
     <p class="hint">毎日のように入れるタスクは、行の ☆ を押すと「よく使うタスク」に登録できます（タスク名と所要時間。このページだけに保存されます）。空のタスク欄に入ったときや、タスク名を打ったときに候補が出るので、↓ で選んで Enter（またはクリック）で入れられます。登録した名前をそのまま打ったときも、登録した所要時間が入ります。候補を閉じるときは Esc です。表の下の一覧を押しても行が増えます。★ や一覧の × を押すと登録から外れます。</p>
   </section>
 
@@ -266,7 +266,7 @@ body.drag-size,body.drag-size *{cursor:ew-resize!important}
       <span class="status" id="ganttStatus" role="status" aria-live="polite"></span>
       <button type="button" class="btn plain" id="undo" hidden>元に戻す</button>
     </div>
-    <p class="hint">バーを左右にドラッグすると開始時刻が変わり、その時刻に固定されます（後ろのタスクもずれます）。バーの右端をドラッグすると所要時間、左端をドラッグすると終わりはそのままで開始時刻が変わります。5分刻みで動きます。タスク名を上下にドラッグすると順番を入れ替えられます。タスク名の左のチェックで完了にできます（表の「済」と連動します）。キーボードでは、バーを選んで ← → で移動、Shift＋← → で所要時間を変更できます。</p>
+    <p class="hint">バーを左右にドラッグすると開始時刻が変わり、その時刻に固定されます（後ろのタスクもずれます）。バーの右端をドラッグすると所要時間、左端をドラッグすると終わりはそのままで開始時刻が変わります。5分刻みで動きます。タスク名を上下にドラッグすると順番を入れ替えられます。タスク名の左のチェックで完了にできます（表の「済」と連動します）。キーボードでは、バーを選んで ← → で移動、Shift＋← → で所要時間を変更、⌘（Windows は Ctrl）＋ Enter で完了にできます。</p>
   </section>
 
   <section>
@@ -829,6 +829,12 @@ window.addEventListener('pointerup', function(){ endDrag(false); });
 window.addEventListener('pointercancel', function(){ endDrag(true); });
 window.addEventListener('keydown', function(e){ if (drag && e.key==='Escape') endDrag(true); });
 $('gantt').addEventListener('keydown', function(e){
+  if (e.target.classList.contains('bar') && isDoneKey(e)) {
+    e.preventDefault();
+    var bi = +e.target.getAttribute('data-i');
+    if (toggleDone(items()[bi])) { var nb = $('gantt').querySelector('.bar[data-i="'+bi+'"]'); if (nb) nb.focus(); }
+    return;
+  }
   if (!e.target.classList.contains('bar') || (e.key!=='ArrowLeft' && e.key!=='ArrowRight')) return;
   e.preventDefault();
   var i = +e.target.getAttribute('data-i'), t = items()[i], r = last.rows[i];
@@ -972,8 +978,19 @@ function moveRowByKey(e){
   el.focus();
   try { if (s != null) el.setSelectionRange(s, en); } catch (_) {}
 }
+// Cmd（Windows は Ctrl）＋ Enter で、その行の完了を付けたり外したりする。見出しの行と、日本語の変換中は何もしない。
+function isDoneKey(e){ return e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && !e.isComposing && e.keyCode !== 229; }
+function toggleDone(t){
+  if (!t || !parseDur(t.dur)) return false;
+  t.done = !t.done;
+  var c = $('c-'+t.id); if (c) c.checked = t.done;
+  update();
+  $('rowStatus').textContent = itemName(t)+(t.done ? 'を完了にしました。' : 'の完了を外しました。');
+  return true;
+}
 $('rows').addEventListener('keydown', function(e){
   var f = e.target.getAttribute('data-f');
+  if (f && isDoneKey(e)) { e.preventDefault(); closePop(); toggleDone(itemOf(e.target)); return; }
   if (f && e.altKey && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.isComposing && e.keyCode !== 229 && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
     e.preventDefault(); moveRowByKey(e); return;
   }
