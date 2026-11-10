@@ -250,7 +250,7 @@ body.drag-size,body.drag-size *{cursor:ew-resize!important}
     </div>
     <div class="favs" id="favs" hidden></div>
     <p class="hint">所要時間は「30」（分）、「1:30」、「1時間半」のように書けます。タスクは上から順に、前のタスクが終わった時刻から始まります。会議など時刻が決まっているものは、その行の開始時刻を書き換えると固定されます（黄色）。× を押すと前に続く形に戻ります。「明日へ」を押すと、そのタスクを次の日の一番最後に移します（時刻の固定は外れます）。所要時間を空欄にした行は見出しになります。タスク名の欄で Enter を押すと、すぐ下に次の行が増えます。タスク・所要時間の欄では ↑ ↓ で上下の行に、文字の端で ← → を押すと隣の欄に移れます。空のタスク欄で Backspace を押すと、その行が消えます。option（Windows は Alt）＋ ↑ ↓ で、その行ごと上下に入れ替えられます。</p>
-    <p class="hint">毎日のように入れるタスクは、行の ☆ を押すと「よく使うタスク」に登録できます（タスク名と所要時間。このページだけに保存されます）。空のタスク欄に入ったときや、タスク名を打ったときに候補が出るので、↓ で選んで Enter（またはクリック）で入れられます。候補を閉じるときは Esc です。表の下の一覧を押しても行が増えます。★ や一覧の × を押すと登録から外れます。</p>
+    <p class="hint">毎日のように入れるタスクは、行の ☆ を押すと「よく使うタスク」に登録できます（タスク名と所要時間。このページだけに保存されます）。空のタスク欄に入ったときや、タスク名を打ったときに候補が出るので、↓ で選んで Enter（またはクリック）で入れられます。登録した名前をそのまま打ったときも、登録した所要時間が入ります。候補を閉じるときは Esc です。表の下の一覧を押しても行が増えます。★ や一覧の × を押すと登録から外れます。</p>
   </section>
 
   <section>
@@ -1013,7 +1013,7 @@ function carry(t){
 }
 // ---- よく使うタスク ----
 // 保存先と、所要時間の欄の扱い（ページごとに違うところ）
-var FAV = {key:'tasksched.fav.v1', f:'dur',
+var FAV = {key:'tasksched.fav.v1', f:'dur', label:'所要時間',
   show:function(v){ var m = parseDur(v); return m ? fmtDur(m) : '見出し'; },
   list:function(){ return items(); }, item:function(el){ return itemOf(el); }, add:function(name, v){ addRow(name, v); }};
 // このページだけに保存する（ほかのページの登録とは混ざらない）。行の ☆ で登録・解除し、
@@ -1149,7 +1149,24 @@ function popKey(e){
   if (e.key === 'Escape') { e.preventDefault(); closePop(); return true; }
   return false;
 }
-$('rows').addEventListener('input', function(e){ if (e.target.getAttribute('data-f') === 'name') openPop(e.target); });
+// 登録済みの名前を最後まで打ったとき（候補は出ない）も、登録した値を入れる。
+// 一度入れたあとに手で直した値は、同じ名前のままなら上書きしない。日本語の変換中は待つ。
+function applyExact(inp){
+  var t = FAV.item(inp), f = t && favOf(inp.value);
+  if (!f || inp.getAttribute('data-fav') === f.name) return;
+  inp.setAttribute('data-fav', f.name);
+  if (String(t[FAV.f]) === f.v) return;
+  t[FAV.f] = f.v;
+  var d = $('d-'+t.id); if (d) d.value = f.v;
+  closePop(); clearEdit(); useFav(f); update();
+  $('rowStatus').textContent = '「'+f.name+'」の'+FAV.label+'を、登録どおり '+FAV.show(f.v)+' にしました。';
+}
+$('rows').addEventListener('input', function(e){
+  if (e.target.getAttribute('data-f') !== 'name') return;
+  openPop(e.target);
+  if (!e.isComposing) applyExact(e.target);
+});
+$('rows').addEventListener('compositionend', function(e){ if (e.target.getAttribute('data-f') === 'name') applyExact(e.target); });
 $('rows').addEventListener('focusin', function(e){ if (e.target.getAttribute('data-f') === 'name' && !e.target.value.trim()) openPop(e.target); });
 $('rows').addEventListener('focusout', function(e){ if (pop && pop.input === e.target) closePop(); });
 $('favPop').addEventListener('pointerdown', function(e){
